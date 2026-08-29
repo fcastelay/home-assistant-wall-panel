@@ -1,0 +1,11 @@
+# Nada de esto se publica jamas.
+.claude/
+secrets.yaml
+*.token
+credenciales*.json
+*.backup
+node_modules/
+
+# Las capturas las pone cada uno; ver docs/capturas/LEEME.md
+docs/capturas/*.png
+!docs/capturas/LEEME.md
