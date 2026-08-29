@@ -6,6 +6,7 @@ credenciales*.json
 *.backup
 node_modules/
 
-# Las capturas las pone cada uno; ver docs/capturas/LEEME.md
-docs/capturas/*.png
-!docs/capturas/LEEME.md
+# Las capturas SI van al repositorio: fueron revisadas una por una y la de Inicio tiene
+# tapado el bloque de presencia. Lo que no entra es cualquier imagen nueva sin revisar.
+#
+# Antes de agregar una: mirarla. Nombres, la calle, IPs, y las caratulas de Plex.
