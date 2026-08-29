@@ -11,6 +11,20 @@ calle y las caras de quienes viven ahí. Todo lo demás es el panel real.
 
 ---
 
+## La documentación
+
+| | |
+|---|---|
+| [**INSTALACION.md**](docs/INSTALACION.md) | De cero a andando. Cuarenta minutos |
+| [**ENTIDADES.md**](docs/ENTIDADES.md) | Las 184 entidades que usa, y dónde. **Se genera del código** |
+| [**MODULOS.md**](docs/MODULOS.md) | Qué hace cada archivo |
+| [**DECISIONES.md**](docs/DECISIONES.md) | Por qué está así, y qué se probó antes |
+
+**Si vas a copiarlo**, andá a INSTALACION y después a ENTIDADES.
+**Si querés entender cómo piensa**, andá a DECISIONES.
+
+---
+
 ## Por qué está escrito como código y no armado en la interfaz
 
 Un tablero de 31 vistas hecho a mano en el editor de Lovelace es imposible de mantener:
@@ -43,6 +57,12 @@ tener**. Antes de correr nada:
 
 Los marcadores `TU_HOST_HA`, `TU_IP_LAN` y `Persona 1` están puestos a propósito: **si no
 los cambiás, no anda**, y eso es mejor que un tablero que arranca mostrando datos vacíos.
+
+La lista completa —**184 entidades**, con dónde se usa cada una— está en
+[`docs/ENTIDADES.md`](docs/ENTIDADES.md), y se genera leyendo el código, no a mano.
+
+**No hace falta cambiarlas todas de entrada.** Una entidad que no existe muestra `--` o
+queda apagada: el panel a medio adaptar sigue siendo usable. Empezá por Inicio.
 
 ---
 
