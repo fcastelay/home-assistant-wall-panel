@@ -1,0 +1,46 @@
+# Generado por scripts/ha/aplicar-auditoria.mjs - NO EDITAR A MANO.
+#
+# El ambiente mas frio de la casa, y cual es. Los seis sensores Hue vienen midiendo
+# temperatura desde siempre y no lo usaba ninguna automatizacion.
+#
+# Va como paquete y no en configuration.yaml porque `template:` esta comentado ahi y
+# packages/ ya se carga con !include_dir_named.
+
+# modo_limpieza va aca y no por API: /api/config/input_boolean/create devuelve 404.
+# De paso queda versionado en el repo en vez de escondido en el registro de helpers.
+input_boolean:
+  modo_limpieza:
+    name: Modo limpieza
+    icon: mdi:broom
+
+template:
+  - sensor:
+      - name: "Casa temperatura minima"
+        unique_id: casa_temp_minima
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >
+          {% set s = ['sensor.hue_motion_sensor_1_temperatura',
+                      'sensor.hue_motion_sensor_2_temperatura',
+                      'sensor.hue_motion_sensor_3_temperatura',
+                      'sensor.hue_motion_sensor_4_temperatura',
+                      'sensor.hue_motion_sensor_5_temperatura',
+                      'sensor.hue_motion_sensor_6_temperatura'] %}
+          {{ s | map('states') | map('float', 99) | list | min }}
+        attributes:
+          ambiente: >
+            {% set s = ['sensor.hue_motion_sensor_1_temperatura',
+                        'sensor.hue_motion_sensor_2_temperatura',
+                        'sensor.hue_motion_sensor_3_temperatura',
+                        'sensor.hue_motion_sensor_4_temperatura',
+                        'sensor.hue_motion_sensor_5_temperatura',
+                        'sensor.hue_motion_sensor_6_temperatura'] %}
+            {% set ns = namespace(t=99, n='?') %}
+            {% for x in s %}
+              {% if states(x) | float(99) < ns.t %}
+                {% set ns.t = states(x) | float(99) %}
+                {% set ns.n = state_attr(x,'friendly_name') | replace(' Temperatura','') %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.n }}

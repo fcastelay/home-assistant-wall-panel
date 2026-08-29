@@ -1,0 +1,116 @@
+# FordPass devuelve los estados de la camioneta en ingles y en mayusculas
+# (OPEN, DISARMED, PARK, DISCONNECTED). Estos sensores son la version legible
+# para mostrar en el panel; los originales siguen intactos por si alguna
+# automatizacion los usa.
+#
+# Si aparece un estado que no esta en el diccionario se muestra tal cual, para
+# que se note que falta agregarlo en vez de quedar en blanco.
+
+template:
+  - sensor:
+      - name: "Ranger puertas"
+        unique_id: ranger_puertas_es
+        icon: mdi:car-door
+        state: >
+          {% set d = {'Open': 'Abierta', 'Closed': 'Cerradas', 'Ajar': 'Entornada'} %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_doorstatus') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger ventanillas"
+        unique_id: ranger_ventanillas_es
+        icon: mdi:car-door
+        state: >
+          {% set d = {'Open': 'Abiertas', 'Closed': 'Cerradas', 'Ajar': 'Entornadas'} %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_windowposition') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger alarma"
+        unique_id: ranger_alarma_es
+        icon: mdi:shield-car
+        state: >
+          {% set d = {
+            'DISARMED': 'Desarmada', 'ARMED': 'Armada',
+            'SET': 'Armada', 'NOTSET': 'Desarmada', 'PREARMED': 'Armándose'
+          } %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_alarm') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger encendido"
+        unique_id: ranger_encendido_es
+        icon: mdi:key-variant
+        state: >
+          {% set d = {
+            'OFF': 'Apagado', 'ON': 'Contacto', 'RUN': 'En marcha',
+            'START': 'Arrancando', 'ACCESSORY': 'Accesorios'
+          } %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_ignitionstatus') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger palanca"
+        unique_id: ranger_palanca_es
+        icon: mdi:car-shift-pattern
+        state: >
+          {% set d = {
+            'PARK': 'Estacionada', 'DRIVE': 'Marcha', 'REVERSE': 'Reversa',
+            'NEUTRAL': 'Punto muerto', 'LOW': 'Baja'
+          } %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_gearleverposition') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger conexión"
+        unique_id: ranger_conexion_es
+        icon: mdi:wifi
+        state: >
+          {% set d = {'CONNECTED': 'Conectada', 'DISCONNECTED': 'Sin conexión'} %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_deviceconnectivity') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger arranque a distancia"
+        unique_id: ranger_arranque_es
+        icon: mdi:car-key
+        state: >
+          {% set d = {'Inactive': 'Inactivo', 'Active': 'Andando', 'Unknown': 'Sin dato'} %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_remotestartstatus') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger cinturón"
+        unique_id: ranger_cinturon_es
+        icon: mdi:seatbelt
+        state: >
+          {% set d = {'BUCKLED': 'Puesto', 'UNBUCKLED': 'Sin poner'} %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_seatbelt') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger freno de mano"
+        unique_id: ranger_freno_mano_es
+        icon: mdi:car-brake-parking
+        state: >
+          {% set d = {'ON': 'Puesto', 'OFF': 'Suelto'} %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_parkingbrakestatus') %}
+          {{ d.get(v, v) }}
+
+      - name: "Ranger sistema diésel"
+        unique_id: ranger_diesel_es
+        icon: mdi:engine
+        state: >
+          {% set d = {
+            'NORMAL_OPERATION': 'Normal', 'REGENERATION': 'Regenerando',
+            'WARNING': 'Atención', 'FAULT': 'Falla'
+          } %}
+          {% set v = states('sensor.fordpass_8afbr01bxrj409587_dieselsystemstatus') %}
+          {{ d.get(v, v) }}
+
+      # Cuanto hace que la camioneta no reporta. FordPass a veces se queda mudo
+      # varios dias y no se nota mirando el resto de los valores, que quedan
+      # congelados con el ultimo dato bueno.
+      - name: "Ranger sin reportar"
+        unique_id: ranger_sin_reportar
+        icon: mdi:clock-alert-outline
+        unit_of_measurement: h
+        state: >
+          {% set t = states('sensor.fordpass_8afbr01bxrj409587_lastrefresh') %}
+          {% if t in ['unavailable', 'unknown'] %}
+            0
+          {% else %}
+            {{ ((now() - (t | as_datetime)).total_seconds() / 3600) | round(1) }}
+          {% endif %}

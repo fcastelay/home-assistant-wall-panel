@@ -1,0 +1,784 @@
+# Redes y ciberseguridad — FASE 1
+#
+# Lo administra el proyecto. Arquitectura completa en docs/NETWORK_SECURITY_MONITORING.md
+#
+# Esta fase NO depende de nada externo: ni SNMP en el MikroTik, ni token de Cloudflare.
+# Mide conectividad, latencia, IP publica y salud del tunel con lo que ya hay.
+#
+# Las fases 2 (trafico por SNMP) y 3 (amenazas de Cloudflare) se agregan a este mismo
+# archivo cuando existan los prerrequisitos. Estan escritas en el documento.
+#
+# OJO CON command_line: los comandos corren DENTRO del contenedor de HA, no en la mini PC.
+# Si `ping` o `curl` no estuvieran disponibles, los sensores quedan en `unknown` y hay que
+# verlo en el estado de la entidad, no en el log.
+
+# ---------------------------------------------------------------- IP publica
+
+rest:
+  - resource: https://api.ipify.org?format=json
+    scan_interval: 900
+    sensor:
+      - name: "IP publica"
+        unique_id: red_ip_publica
+        value_template: "{{ value_json.ip }}"
+        icon: mdi:web
+
+  # A donde apunta HOY el dominio, preguntado por DNS sobre HTTPS.
+  #
+  # `tu-dominio.ejemplo` y `www` son los unicos registros que dependen de la IP de casa; los
+  # otros cuatro subdominios van por el tunel de Cloudflare. Desde el 28/08 el dominio es
+  # un CNAME a `tu-router.sn.mynetname.net`, el DNS dinamico propio del MikroTik, que se
+  # actualiza solo. Antes se cambiaba a mano.
+  #
+  # ESTO NO ACTUALIZA NADA: avisa. Un DDNS que falla en silencio se descubre estando
+  # afuera y sin poder entrar. Es la red de seguridad de una cadena que tiene tres
+  # eslabones (MikroTik -> mynetname -> CNAME) y cualquiera puede cortarse.
+  # FASE 3: sonda de Cloudflare.
+  #
+  # PRIMERO SE MIDE QUE DEVUELVE, DESPUES SE DIBUJAN TARJETAS. En el plan Free las
+  # analiticas estan limitadas; en vez de suponer que hay, se guarda la respuesta cruda
+  # en atributos para leer que llego de verdad, incluido el error si el token no alcanza.
+  #
+  # El zone id NO se escribe aca: se pregunta a la API con el mismo token.
+  #
+  # OJO: esto va como UN ITEM MAS de esta lista `rest:`. Poner un segundo bloque `rest:`
+  # en el mismo archivo no da error — YAML se queda con el ultimo y el otro desaparece
+  # en silencio. Paso el 28/08 y no dejo rastro en el log.
+  - resource: https://api.cloudflare.com/client/v4/zones?name=tu-dominio.ejemplo
+    headers:
+      Authorization: !secret cf_auth
+      Content-Type: application/json
+    scan_interval: 3600
+    sensor:
+      - name: "CF zona"
+        unique_id: cf_zona
+        icon: mdi:cloud
+        value_template: >
+          {% if value_json.success is defined and value_json.success and value_json.result %}
+            {{ value_json.result[0].id }}
+          {% else %}
+            error
+          {% endif %}
+        json_attributes:
+          - success
+          - errors
+
+  # Analiticas de Cloudflare por GraphQL. `threats` es lo que Cloudflare bloqueo.
+  #
+  # DOS COSAS APRENDIDAS A LOS GOLPES EL 28/08:
+  #
+  # 1. La integracion `rest` NO renderiza plantillas en `payload`. El `{{ ... }}` viaja
+  #    literal. Por eso el zone id va escrito y no sale de un sensor. Es un identificador,
+  #    no una credencial: sin el token no sirve de nada. El TOKEN sigue solo en
+  #    secrets.yaml, leido con !secret en la cabecera.
+  #
+  # 2. Cloudflare rechaza rangos de mas de 52 semanas. Como la fecha no se puede calcular
+  #    (ver punto 1), va fija.
+  #
+  #    *** date_geq=2026-08-01 CADUCA ALREDEDOR DEL 30/07/2027. ***
+  #
+  #    Cuando pase, `sensor.cf_diagnostico` va a decir "error: ... time range wider than
+  #    52w1d1h" y salta el aviso. Se arregla poniendo una fecha nueva.
+  #
+  # `limit: 7` con `orderBy: date_DESC` devuelve los 7 dias mas recientes, sin importar
+  # cuanto atras arranque el filtro.
+  #
+  # Se guarda la respuesta cruda en atributos a proposito: en el plan Free varias
+  # metricas no vienen, y hay que ver cuales antes de dibujar nada.
+  - resource: https://api.cloudflare.com/client/v4/graphql
+    method: POST
+    headers:
+      Authorization: !secret cf_auth
+      Content-Type: application/json
+    payload: >-
+      {"query": "{ viewer { zones(filter: {zoneTag: \"ID\"}) { httpRequests1dGroups(limit: 7, orderBy: [date_DESC], filter: {date_geq: \"2026-08-01\"}) { dimensions { date } sum { requests threats bytes } } } } }"}
+    scan_interval: 900
+    sensor:
+      - name: "CF peticiones hoy"
+        unique_id: cf_peticiones
+        icon: mdi:web
+        state_class: measurement
+        value_template: >
+          {% set z = value_json.data.viewer.zones | default([]) %}
+          {% set g = z[0].httpRequests1dGroups | default([]) if z else [] %}
+          {{ g[0].sum.requests if g else 'sin datos' }}
+        json_attributes_path: "$.data.viewer.zones[0]"
+        json_attributes:
+          - httpRequests1dGroups
+
+      # Sonda de diagnostico: dice QUE contesto Cloudflare cuando no hay datos.
+      # Sin esto, un fallo de la consulta se ve igual que "no hay amenazas": `unknown`.
+      - name: "CF diagnostico"
+        unique_id: cf_diagnostico
+        icon: mdi:bug
+        value_template: >
+          {% if value_json.errors %}
+            error: {{ (value_json.errors[0].message | default('?'))[:200] }}
+          {% elif value_json.data is not defined %}
+            respuesta sin campo data
+          {% elif (value_json.data.viewer.zones | default([])) | length == 0 %}
+            la zona no devolvio nada (permisos?)
+          {% elif (value_json.data.viewer.zones[0].httpRequests1dGroups | default([])) | length == 0 %}
+            zona ok pero sin grupos de peticiones
+          {% else %}
+            ok
+          {% endif %}
+
+      - name: "CF amenazas hoy"
+        unique_id: cf_amenazas
+        icon: mdi:shield-alert
+        state_class: measurement
+        value_template: >
+          {% set z = value_json.data.viewer.zones | default([]) %}
+          {% set g = z[0].httpRequests1dGroups | default([]) if z else [] %}
+          {{ g[0].sum.threats if g else 'sin datos' }}
+
+  - resource: https://cloudflare-dns.com/dns-query?name=tu-dominio.ejemplo&type=A
+    headers:
+      accept: application/dns-json
+    scan_interval: 900
+    sensor:
+      - name: "DNS del dominio"
+        unique_id: red_dns_dominio
+        icon: mdi:dns
+        value_template: >
+          {% set a = value_json.Answer | default([]) | selectattr('type','eq',1) | list %}
+          {{ a[0].data if a else 'sin respuesta' }}
+
+# ------------------------------------------------------- conectividad y latencia
+
+command_line:
+  # Internet de verdad, no solo el enlace: se pregunta a 1.1.1.1.
+  - binary_sensor:
+      name: "Internet"
+      unique_id: red_internet
+      command: 'ping -c 3 -W 2 1.1.1.1 > /dev/null 2>&1 && echo ON || echo OFF'
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: connectivity
+      scan_interval: 60
+
+  # El gateway del modem de Telecom. Separar los dos permite distinguir
+  # "se cayo internet" de "se cayo el modem", que se arreglan distinto.
+  - binary_sensor:
+      name: "Enlace WAN"
+      unique_id: red_enlace_wan
+      command: 'ping -c 3 -W 2 TU_IP_LAN > /dev/null 2>&1 && echo ON || echo OFF'
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: connectivity
+      scan_interval: 60
+
+  - binary_sensor:
+      name: "Router MikroTik"
+      unique_id: red_router
+      command: 'ping -c 3 -W 2 TU_IP_LAN > /dev/null 2>&1 && echo ON || echo OFF'
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: connectivity
+      scan_interval: 60
+
+  # Detalle de las amenazas que bloqueo Cloudflare: quien, de donde y que buscaba.
+  #
+  # Va por script y no por un sensor `rest` porque `firewallEventsAdaptive` acepta una
+  # ventana de 1 DIA como maximo, y `rest` no renderiza plantillas en el payload: la fecha
+  # hay que calcularla. Ver el encabezado de /config/cf_eventos.py.
+  - sensor:
+      name: "CF amenazas detalle"
+      unique_id: cf_amenazas_detalle
+      command: "python3 /config/cf_eventos.py"
+      command_timeout: 40
+      scan_interval: 900
+      icon: mdi:format-list-bulleted
+      value_template: >
+        {% if value_json.error %}
+          error
+        {% else %}
+          {{ value_json.total }}
+        {% endif %}
+      json_attributes:
+        - error
+        - total
+        - paises
+        - eventos
+
+  # La PC de la oficina: XX:XX:XX:XX:XX:XX = TU_IP_LAN, sacado de la tabla ARP
+  # del router, no de una lista escrita a mano.
+  - binary_sensor:
+      name: "PC Oficina"
+      unique_id: pc_oficina
+      command: 'ping -c 2 -W 2 TU_IP_LAN > /dev/null 2>&1 && echo ON || echo OFF'
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: connectivity
+      icon: mdi:desktop-tower
+      scan_interval: 30
+
+  # NO se parsea la linea de resumen: `rtt min/avg/max/mdev` de iputils tiene cuatro
+  # numeros y `round-trip min/avg/max` de busybox tiene tres, asi que un `$5` fijo
+  # devuelve vacio en busybox y HA ni crea la entidad. Pasó el 28/08.
+  # Se lee el `time=` de la ultima respuesta, que existe igual en los dos.
+  - sensor:
+      name: "Latencia internet"
+      unique_id: red_latencia
+      command: "ping -c 3 -W 2 1.1.1.1 | grep -o 'time=[0-9.]*' | tail -1 | cut -d= -f2"
+      unit_of_measurement: "ms"
+      state_class: measurement
+      icon: mdi:speedometer
+      scan_interval: 60
+
+  # El tunel de Cloudflare: si esta caido, tu-dominio.ejemplo no contesta.
+  # Se mide el codigo HTTP, no el contenido: 200 alcanza para saber que el tunel vive.
+  - sensor:
+      name: "Tunel Cloudflare codigo"
+      unique_id: red_tunel_codigo
+      command: 'curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://tu-dominio.ejemplo'
+      scan_interval: 120
+
+# --------------------------------------------------- FASE 2: trafico por SNMP
+#
+# La WAN es ether2 y su ifIndex es 20. NO se adivino: se recorrio ifName
+# (1.3.6.1.2.1.31.1.1.1.1.N) por SNMP hasta encontrar el que dice "ether2". El indice NO
+# sigue el numero del puerto — ether5 es el 1 y ether2 es el 20.
+#
+# Se usan los contadores de 64 bits (ifHCInOctets / ifHCOutOctets), no los de 32:
+# los de 32 se dan vuelta cada pocos minutos a velocidad de fibra y el grafico mentiria.
+#
+# `rx` es lo que ENTRA a la casa (bajada) y `tx` lo que sale (subida), visto desde el
+# router.
+
+sensor:
+  - platform: snmp
+    name: "WAN bytes bajada"
+    unique_id: wan_bytes_bajada
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.6.20
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 10
+    unit_of_measurement: "B"
+    state_class: total_increasing
+
+  - platform: snmp
+    name: "WAN bytes subida"
+    unique_id: wan_bytes_subida
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.10.20
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 10
+    unit_of_measurement: "B"
+    state_class: total_increasing
+
+  - platform: snmp
+    name: "MikroTik CPU"
+    unique_id: mikrotik_cpu
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.25.3.3.1.2.1
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 60
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  # Derivadas: de contador acumulado a bytes por segundo.
+  #
+  # OJO CON ESTOS DOS NUMEROS. Al principio eran scan_interval 20 s y time_window 60 s:
+  # tres muestras por ventana, y el grafico salia PLANO Y BAJO. Una rafaga de 50 Mbit/s
+  # de 5 segundos se repartia sobre un minuto entero y aparecia como 4. Medido el
+  # 28/08: la bajada se movia entre 0,12 y 0,14 Mbit/s mientras el router reportaba
+  # rafagas mucho mayores.
+  #
+  # Ahora 10 s de muestreo y 30 s de ventana. Subir la ventana vuelve a aplastar los
+  # picos; bajarla mucho mas mete ruido de muestreo.
+  - platform: derivative
+    source: sensor.wan_bytes_bajada
+    name: "WAN bajada Bps"
+    unique_id: wan_bajada_bps
+    unit_time: s
+    time_window: "00:00:30"
+    round: 0
+
+  - platform: derivative
+    source: sensor.wan_bytes_subida
+    name: "WAN subida Bps"
+    unique_id: wan_subida_bps
+    unit_time: s
+    time_window: "00:00:30"
+    round: 0
+
+# GB por dia y por mes. `utility_meter` sobre el contador crudo: no se reinicia solo
+# cuando el router se reinicia porque el contador es `total_increasing` y HA lo maneja.
+utility_meter:
+  wan_bajada_diaria:
+    source: sensor.wan_bytes_bajada
+    name: "WAN bajada hoy"
+    cycle: daily
+  wan_subida_diaria:
+    source: sensor.wan_bytes_subida
+    name: "WAN subida hoy"
+    cycle: daily
+  wan_bajada_mensual:
+    source: sensor.wan_bytes_bajada
+    name: "WAN bajada del mes"
+    cycle: monthly
+  wan_subida_mensual:
+    source: sensor.wan_bytes_subida
+    name: "WAN subida del mes"
+    cycle: monthly
+
+# ------------------------------------------------- despertar la PC de la oficina
+#
+# Reemplaza al script `WOL PC OFICINA` del MikroTik, que habia que correr entrando por
+# Winbox cada vez. El script hacia:
+#
+#     tool wol interface=ether3 mac=XX:XX:XX:XX:XX:XX
+#
+# No hace falta el router: `ether3` es puerto del mismo bridge que el resto de la LAN
+# (comprobado con /interface/bridge/port/print), asi que un paquete magico difundido
+# desde HA (TU_HOST_HA) llega igual. Menos piezas, y no depende de que la API del
+# router este abierta.
+#
+# Es un BOTON y no un interruptor, por lo mismo que el porton del garage: despertar es un
+# pulso, no un estado. El estado lo dice `binary_sensor.pc_oficina`, que hace ping.
+
+wake_on_lan:
+
+# ------------------------------------------------------------------ derivados
+
+template:
+  - button:
+      - name: "Despertar PC Oficina"
+        unique_id: wol_pc_oficina
+        icon: mdi:desktop-tower
+        press:
+          - action: wake_on_lan.send_magic_packet
+            data:
+              mac: "XX:XX:XX:XX:XX:XX"
+              broadcast_address: "TU_IP_LAN"
+
+  - binary_sensor:
+      - name: "Tunel Cloudflare"
+        unique_id: red_tunel_cloudflare
+        device_class: connectivity
+        state: >
+          {{ states('sensor.tunel_cloudflare_codigo') | int(0) >= 200
+             and states('sensor.tunel_cloudflare_codigo') | int(0) < 400 }}
+        icon: >
+          {{ 'mdi:cloud-check' if is_state('binary_sensor.tunel_cloudflare','on') else 'mdi:cloud-alert' }}
+
+  - sensor:
+      # De bytes/s a Mbit/s, que es como se lee una conexion. x8 para pasar a bits,
+      # /1e6 para pasar a mega.
+      - name: "WAN bajada"
+        unique_id: wan_bajada_mbps
+        unit_of_measurement: "Mbit/s"
+        state_class: measurement
+        icon: mdi:download-network
+        state: >
+          {% set v = states('sensor.wan_bajada_bps') | float(0) %}
+          {{ (v * 8 / 1000000) | round(2) }}
+
+      - name: "WAN subida"
+        unique_id: wan_subida_mbps
+        unit_of_measurement: "Mbit/s"
+        state_class: measurement
+        icon: mdi:upload-network
+        state: >
+          {% set v = states('sensor.wan_subida_bps') | float(0) %}
+          {{ (v * 8 / 1000000) | round(2) }}
+
+      # Los utility_meter cuentan bytes; para leerlos hacen falta GB.
+      - name: "Datos bajados hoy"
+        unique_id: wan_gb_bajada_hoy
+        unit_of_measurement: "GB"
+        state_class: total_increasing
+        icon: mdi:download
+        state: "{{ (states('sensor.wan_bajada_hoy') | float(0) / 1073741824) | round(2) }}"
+
+      - name: "Datos subidos hoy"
+        unique_id: wan_gb_subida_hoy
+        unit_of_measurement: "GB"
+        state_class: total_increasing
+        icon: mdi:upload
+        state: "{{ (states('sensor.wan_subida_hoy') | float(0) / 1073741824) | round(2) }}"
+
+      - name: "Datos del mes"
+        unique_id: wan_gb_mes
+        unit_of_measurement: "GB"
+        state_class: total_increasing
+        icon: mdi:calendar-month
+        state: >
+          {% set b = states('sensor.wan_bajada_del_mes') | float(0) %}
+          {% set s = states('sensor.wan_subida_del_mes') | float(0) %}
+          {{ ((b + s) / 1073741824) | round(1) }}
+
+      # Compara lo que dice el DNS contra la IP real. Si difieren, el dominio quedo
+      # viejo y desde afuera no se llega a casa.
+      - name: "DNS al dia"
+        unique_id: red_dns_al_dia
+        icon: mdi:check-network
+        state: >
+          {% set ip = states('sensor.ip_publica') %}
+          {% set dns = states('sensor.dns_del_dominio') %}
+          {% if ip in ['unknown','unavailable',''] or dns in ['unknown','unavailable','','sin respuesta'] %}
+            sin datos
+          {% elif ip == dns %}
+            al dia
+          {% else %}
+            desactualizado
+          {% endif %}
+
+      # --- malla WiFi Deco ---
+      #
+      # Los nodos son los `device_tracker` que TERMINAN en `_deco`; los clientes llevan
+      # el nodo como prefijo (`bedroom_deco_galaxy_tab_s9`). Se distingue por el sufijo y
+      # no por una lista escrita a mano, asi agregar o sacar un nodo no obliga a tocar
+      # esto.
+      - name: "Nodos de la malla"
+        unique_id: malla_nodos
+        unit_of_measurement: "nodos"
+        state_class: measurement
+        icon: mdi:access-point-network
+        state: >
+          {{ states.device_tracker
+             | selectattr('entity_id','search','_deco$')
+             | selectattr('state','eq','home') | list | count }}
+
+      - name: "Nodos caidos"
+        unique_id: malla_caidos
+        icon: mdi:access-point-network-off
+        state: >
+          {% set c = states.device_tracker
+             | selectattr('entity_id','search','_deco$')
+             | rejectattr('state','eq','home')
+             | map(attribute='name') | list %}
+          {{ c | join(', ') if c else 'ninguno' }}
+
+      # Cuenta los device_tracker en casa. La integracion mikrotik ya los provee.
+      - name: "Dispositivos conectados"
+        unique_id: red_dispositivos
+        unit_of_measurement: "equipos"
+        state_class: measurement
+        icon: mdi:lan-connect
+        state: >
+          {{ states.device_tracker
+             | selectattr('state','eq','home')
+             | list | count }}
+
+      # Resumen de una linea para la cabecera del tablero.
+      - name: "Estado de la red"
+        unique_id: red_estado
+        icon: mdi:shield-network
+        state: >
+          {% set i = is_state('binary_sensor.internet','on') %}
+          {% set w = is_state('binary_sensor.enlace_wan','on') %}
+          {% set t = is_state('binary_sensor.tunel_cloudflare','on') %}
+          {% if not w %} Modem caido
+          {% elif not i %} Sin internet
+          {% elif not t %} Tunel caido
+          {% else %} Todo en orden
+          {% endif %}
+
+# -------------------------------------------------------------- automatizaciones
+
+automation:
+  # Se avisa recien a los 3 minutos: un corte de 30 segundos no sirve de nada avisarlo,
+  # y el ruido hace que se dejen de mirar los avisos que importan.
+  - id: red_internet_caido
+    alias: "Red - se cayo internet"
+    description: >
+      Distingue el corte de internet de la caida del modem mirando las dos sondas.
+      Lo administra el proyecto (packages/redes_seguridad.yaml).
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.internet
+        to: "off"
+        for: { minutes: 3 }
+    actions:
+      - variables:
+          causa: >
+            {{ 'El modem de Telecom no responde (TU_IP_LAN).'
+               if is_state('binary_sensor.enlace_wan','off')
+               else 'El modem responde pero no hay salida a internet. Puede ser el proveedor.' }}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: "Sin internet hace 3 minutos. {{ causa }}"
+      - action: awtrix.notification
+        data:
+          device: ID
+          text: >
+            Sin internet
+          color: "#FF0000"
+          icon: casa
+          duration: 18
+
+  - id: red_internet_volvio
+    alias: "Red - volvio internet"
+    description: "Cierra el aviso anterior. Lo administra el proyecto."
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.internet
+        from: "off"
+        to: "on"
+        for: { minutes: 1 }
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: "Internet volvio. IP publica: {{ states('sensor.ip_publica') }}"
+
+  - id: red_tunel_caido
+    alias: "Red - se cayo el tunel de Cloudflare"
+    description: >
+      Solo avisa si HAY internet: si no hay, el tunel caido es consecuencia y no
+      hace falta un segundo aviso. Lo administra el proyecto.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.tunel_cloudflare
+        to: "off"
+        for: { minutes: 5 }
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.internet
+        state: "on"
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            El tunel de Cloudflare no responde hace 5 minutos, pero hay internet.
+            Revisar el contenedor cloudflared en el MikroTik (TU_IP_LAN).
+      - action: awtrix.notification
+        data:
+          device: ID
+          text: >
+            Tunel caido
+          color: "#FF5500"
+          icon: casa
+          duration: 18
+
+  - id: red_nodo_wifi_caido
+    alias: "Red - se cayo un nodo de la malla WiFi"
+    description: >
+      Un nodo caido es una zona de la casa sin WiFi, y no avisa nada: el 28/08 se
+      descubrio de casualidad que el BE25 del living llevaba tiempo apagado.
+      15 minutos de espera para no avisar por un reinicio. Lo administra el proyecto.
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: "{{ states('sensor.nodos_caidos') not in ['ninguno','unknown','unavailable'] }}"
+        for: { minutes: 15 }
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            Nodo(s) de la malla WiFi sin conexion: {{ states('sensor.nodos_caidos') }}.
+            Quedan {{ states('sensor.nodos_de_la_malla') }} en pie.
+            Esa zona de la casa esta sin WiFi propio.
+      - action: awtrix.notification
+        data:
+          device: ID
+          text: >
+            WiFi caido: {{ states('sensor.nodos_caidos') }}
+          color: "#FF5500"
+          icon: casa
+          duration: 20
+
+  - id: red_nodo_wifi_volvio
+    alias: "Red - volvio un nodo de la malla WiFi"
+    description: "Cierra el aviso anterior. Lo administra el proyecto."
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.nodos_caidos
+        to: "ninguno"
+        for: { minutes: 2 }
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            La malla WiFi esta completa otra vez:
+            {{ states('sensor.nodos_de_la_malla') }} nodos en pie.
+
+  - id: red_cf_pico_de_ataques
+    alias: "Red - pico de ataques bloqueados por Cloudflare"
+    description: >
+      Avisa cuando los intentos bloqueados en 24 h se disparan.
+      UMBRAL PROVISORIO: medido el 28/08 sobre 7 dias, el maximo fue 30 en un dia
+      (8, 13, 1, 0, 0, 30, 0). Se pone en 60, el doble del maximo observado.
+      REVISAR EN DOS SEMANAS con datos reales: un umbral inventado hace que se ignoren
+      los avisos o que no salte nunca. Lo administra el proyecto.
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.cf_amenazas_detalle
+        above: 60
+        for: { minutes: 15 }
+    actions:
+      - variables:
+          paises: >
+            {{ (state_attr('sensor.cf_amenazas_detalle','paises') or [])
+               | map('join', ' x') | join(', ') }}
+          ips: >
+            {{ (state_attr('sensor.cf_amenazas_detalle','eventos') or [])
+               | map(attribute='ip') | unique | list | join(', ') }}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            Cloudflare bloqueo {{ states('sensor.cf_amenazas_detalle') }} intentos en 24 h.
+            Paises: {{ paises }}.
+            IPs: {{ ips[:300] }}
+      - action: awtrix.notification
+        data:
+          device: ID
+          text: >
+            {{ states('sensor.cf_amenazas_detalle') }} ataques bloqueados
+          color: "#FF0000"
+          icon: escudo
+          duration: 25
+
+  - id: red_cf_bloqueo_duro
+    alias: "Red - Cloudflare bloqueo algo en serio"
+    description: >
+      La mayoria de los eventos son `managed_challenge`, que es rutina. Un `block` o un
+      `drop` es otra cosa: alguien insistio lo suficiente como para que Cloudflare
+      cortara. Eso si merece enterarse. Lo administra el proyecto.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.cf_amenazas_detalle
+    conditions:
+      # NO alcanza con "hay bloqueos duros": el sensor se refresca cada 15 min y los
+      # eventos siguen dentro de la ventana de 24 h, asi que avisaba LO MISMO cada vez.
+      # Paso el 28/08 y llegaron avisos repetidos cada 6 minutos.
+      #
+      # Se exige que el MAS RECIENTE sea de los ultimos 20 minutos: asi cada bloqueo se
+      # cuenta una sola vez, y si no hay nada nuevo no molesta.
+      #
+      # El '+0000' es a proposito: `cuando` viene en UTC sin zona, y sin eso `strptime`
+      # devuelve una fecha ingenua que HA interpreta como local — tres horas de error.
+      - condition: template
+        value_template: >
+          {% set duros = (state_attr('sensor.cf_amenazas_detalle','eventos') or [])
+             | selectattr('accion','in',['block','drop','js_challenge']) | list %}
+          {% if not duros %}
+            false
+          {% else %}
+            {% set ultimo = duros | map(attribute='cuando') | max %}
+            {{ (as_timestamp(utcnow()) -
+                as_timestamp(strptime(ultimo ~ '+0000', '%Y-%m-%d %H:%M:%S%z'))) < 1200 }}
+          {% endif %}
+    actions:
+      - variables:
+          duros: >
+            {% set todos = (state_attr('sensor.cf_amenazas_detalle','eventos') or [])
+               | selectattr('accion','in',['block','drop','js_challenge']) | list %}
+            {{ todos | selectattr('cuando','ge',
+                 (utcnow() - timedelta(minutes=20)).strftime('%Y-%m-%d %H:%M:%S')) | list }}
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            Cloudflare corto {{ duros | count }} intento(s) en serio:
+            {% for e in duros[:5] %}
+            {{ e.accion }} · {{ e.pais }} {{ e.ip }} -> {{ e.host }}{{ e.ruta }}
+            {% endfor %}
+      - action: awtrix.notification
+        data:
+          device: ID
+          text: >
+            Cloudflare corto {{ duros | count }} intento(s)
+          color: "#FF0000"
+          icon: escudo
+          duration: 18
+
+  - id: red_cf_sonda_rota
+    alias: "Red - la consulta a Cloudflare dejo de funcionar"
+    description: >
+      Cubre el caso de la fecha caducada (ver el paquete) y cualquier otro fallo de la
+      consulta. Sin esto, las amenazas se verian como cero en vez de como error.
+      Lo administra el proyecto.
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: >
+          {{ states('sensor.cf_diagnostico') not in ['ok','unknown','unavailable'] }}
+        for: { hours: 2 }
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            La consulta de amenazas a Cloudflare dejo de funcionar:
+            {{ states('sensor.cf_diagnostico') }}
+            Si habla de un rango mayor a 52 semanas, hay que actualizar `date_geq` en
+            packages/redes_seguridad.yaml.
+
+  - id: red_dns_desactualizado
+    alias: "Red - el dominio quedo apuntando a otra IP"
+    description: >
+      El dominio es un CNAME al DNS dinamico del MikroTik y deberia actualizarse solo.
+      Si se desincroniza mas de 30 minutos, algo de la cadena se corto.
+      Lo administra el proyecto (packages/redes_seguridad.yaml).
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.dns_al_dia
+        to: "desactualizado"
+        for: { minutes: 30 }
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: >
+            El dominio tu-dominio.ejemplo apunta a {{ states('sensor.dns_del_dominio') }}
+            pero la casa esta en {{ states('sensor.ip_publica') }}.
+            Desde afuera no se llega. Revisar el CNAME en Cloudflare y el IP Cloud del
+            MikroTik (tu-router.sn.mynetname.net).
+      - action: awtrix.notification
+        data:
+          device: ID
+          text: >
+            DNS desactualizado
+          color: "#FFAA00"
+          icon: casa
+          duration: 18
+
+  - id: red_ip_publica_cambio
+    alias: "Red - cambio la IP publica"
+    description: "Lo administra el proyecto."
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.ip_publica
+    conditions:
+      - condition: template
+        value_template: >
+          {{ trigger.from_state.state not in ['unknown','unavailable','']
+             and trigger.to_state.state not in ['unknown','unavailable',''] }}
+    actions:
+      - action: notify.send_message
+        target:
+          entity_id: notify.telegram_TU_BOT
+        data:
+          message: "La IP publica cambio: {{ trigger.from_state.state }} -> {{ trigger.to_state.state }}"

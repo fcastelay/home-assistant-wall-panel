@@ -6,8 +6,8 @@ Assistant por su API.
 
 ![El panel](docs/capturas/inicio.png)
 
-> **Las capturas de esta documentación hay que sacarlas del panel propio.** Los archivos
-> esperados están listados en [`docs/capturas/LEEME.md`](docs/capturas/LEEME.md).
+En la foto de arriba el bloque de presencia está tapado a propósito: eran los nombres, la
+calle y las caras de quienes viven ahí. Todo lo demás es el panel real.
 
 ---
 
@@ -49,6 +49,7 @@ los cambiás, no anda**, y eso es mejor que un tablero que arranca mostrando dat
 ## Cómo está armado
 
 ```
+packages/            la configuracion de Home Assistant que alimenta al panel
 panel2/
   construir.mjs      lee el tablero actual, arma el nuevo, escribe el JSON
   diseno.mjs         LOS TOKENS: colores, radios, tipografías, y las piezas base
@@ -80,6 +81,45 @@ importa: las vistas que no se rediseñaron se conservan tal cual, y las que sí,
 reconstruyen. Se puede migrar de a poco.
 
 ---
+
+## Los paquetes de Home Assistant
+
+El tablero dibuja, pero los datos salen de algún lado. En `packages/` están los sensores,
+plantillas y automatizaciones que lo alimentan. Van en `/config/packages/` con esto en el
+`configuration.yaml`:
+
+```yaml
+homeassistant:
+  packages: !include_dir_named packages
+```
+
+| Paquete | Qué aporta |
+|---|---|
+| `red_fisica.yaml` | Temperatura, CPU y tensión de los routers por SNMP; velocidad de cada boca del switch; **quién gobierna el árbol de expansión** |
+| `redes_seguridad.yaml` | Sondas de internet, tráfico de la WAN, latencia, consultas a Cloudflare |
+| `respaldos.yaml` | Vigilancia de las copias de seguridad |
+| `panel_pasillo.yaml` | Encendido y apagado del monitor de pared |
+| `media.yaml` | Reconecta las integraciones que se cuelgan calladas |
+| `sentinel.yaml`, `auditoria.yaml` | Chequeos de salud del sistema |
+| el resto | Sensores de aparatos concretos |
+
+**Ninguno tiene una credencial adentro.** Las 23 que usan van por `!secret`, que es una
+referencia a `secrets.yaml` — ese archivo no está acá y nunca debe estarlo.
+
+### Una idea que quizá te sirva: mirar un número, no esperar un evento
+
+`red_fisica.yaml` tiene un sensor que parece trivial y es el más útil del conjunto:
+
+```yaml
+- platform: snmp
+  name: "Router costo al raiz"
+  baseoid: 1.3.6.1.2.1.17.2.6.0     # dot1dStpRootCost: si vale 0, este equipo ES el raiz
+```
+
+El árbol de expansión de una casa se puede reorganizar solo y dejar de estar anclado en el
+router sin que nada falle a la vista: la red sigue andando. El síntoma aparece semanas
+después, cuando el equipo que quedó de raíz se reinicia y se lleva la red por delante unos
+segundos. **No hay evento que avise.** Un número en la pantalla lo delata el primer día.
 
 ## Los tokens de diseño
 
@@ -225,6 +265,17 @@ con la entidad correcta, y no dibujarse. Un sensor puede pasar `check_config` y 
 nunca. Lo comprueba la pantalla o la entidad, no el validador.
 
 ---
+
+## Más vistas
+
+| | |
+|---|---|
+| ![Luces](docs/capturas/luces.png) | ![Media](docs/capturas/media.png) |
+| **Luces** — sliders por ambiente, escenas e historial | **Media** — reproductores, el servidor Plex y los estrenos con carátula |
+
+![Más](docs/capturas/mas.png)
+
+**Más** — el cajón de las vistas secundarias, para que la barra no tenga catorce ítems.
 
 ## Requisitos
 

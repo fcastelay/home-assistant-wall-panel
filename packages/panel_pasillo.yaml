@@ -1,0 +1,107 @@
+# Control del panel Samsung QB24C-T del pasillo, por MDC.
+#
+# Vive en packages/ para no tocar configuration.yaml: si algo sale mal, se
+# borra este archivo y todo vuelve como estaba.
+#
+# El script asociado esta en /config/shell/panel_mdc.py
+#
+# NO se expone el apagado general del panel: cuando se apaga del todo, su placa
+# de red se apaga con el y queda inalcanzable hasta que alguien lo prenda a mano.
+# El interruptor de aca usa MDC 0xF9, que corta solo el retroiluminado.
+
+command_line:
+  - switch:
+      name: Panel Pasillo Pantalla
+      unique_id: panel_pasillo_pantalla_mdc
+      icon: mdi:monitor
+      command_on: "python3 /config/shell/panel_mdc.py pantalla on"
+      command_off: "python3 /config/shell/panel_mdc.py pantalla off"
+      command_state: "python3 /config/shell/panel_mdc.py pantalla estado"
+      value_template: "{{ value | int(0) == 1 }}"
+      command_timeout: 10
+      scan_interval: 30
+
+  - sensor:
+      name: Panel Pasillo Brillo
+      unique_id: panel_pasillo_brillo_mdc
+      icon: mdi:brightness-6
+      command: "python3 /config/shell/panel_mdc.py brillo estado"
+      unit_of_measurement: "%"
+      state_class: measurement
+      command_timeout: 10
+      scan_interval: 60
+
+  # El panel trae el parlante activo aunque nadie lo use: el 17/08/2026 estaba
+  # en volumen 33 y sonando. Silenciarlo no borra el volumen guardado.
+  - switch:
+      name: Panel Pasillo Silencio
+      unique_id: panel_pasillo_silencio_mdc
+      icon: mdi:volume-off
+      command_on: "python3 /config/shell/panel_mdc.py silencio on"
+      command_off: "python3 /config/shell/panel_mdc.py silencio off"
+      command_state: "python3 /config/shell/panel_mdc.py silencio estado"
+      value_template: "{{ value | int(0) == 1 }}"
+      command_timeout: 10
+      scan_interval: 60
+
+  - binary_sensor:
+      name: Panel Pasillo Encendido
+      unique_id: panel_pasillo_encendido_mdc
+      device_class: power
+      command: "python3 /config/shell/panel_mdc.py energia estado"
+      payload_on: "1"
+      payload_off: "0"
+      command_timeout: 10
+      scan_interval: 60
+
+shell_command:
+  panel_pasillo_brillo: "python3 /config/shell/panel_mdc.py brillo {{ valor | int(50) }}"
+
+  # 17/08/2026: se quito 'fondo_clima'. El fondo del panel ya no cambia con el
+  # tiempo. HA sirve /local/ con Cache-Control de 31 dias, asi que sobrescribir
+  # actual.svg no se veia nunca: el navegador del kiosko no volvia a pedirlo. El
+  # fondo ahora es fijo, /local/olas/actual.svg, y las otras cuatro paletas
+  # quedan en esa carpeta para cambiarlo a mano. Ver seccion 26 de CASA-MAPA.md.
+
+  # aprender_movimientos vive en packages/aprendizaje.yaml, junto con los
+  # input_number que actualiza. Definirlo tambien aca rompe la configuracion:
+  # dos paquetes no pueden declarar la misma clave.
+
+# --------------------------------------------------------------- tope de encendido
+#
+# EL PROBLEMA, medido el 28/08/2026:
+#
+#   pantalla encendida   598 de 1440 minutos  =  41 % del dia
+#   se encendio          39 veces, 15 minutos de promedio
+#   sensores del pasillo 64 y 82 cambios por hora, con huecos de 10 a 30 segundos
+#
+# Las cuatro automatizaciones que apagan el panel piden 10 minutos sin movimiento (o 15
+# en el barrido con gente en casa). **Con alguien circulando eso no pasa nunca**, asi que
+# ninguna puede apagarlo: el panel se queda prendido horas mostrando un tablero fijo, que
+# es justo lo que quema la pantalla.
+#
+# Esto NO reemplaza a esas cuatro: es el tope que faltaba. Si estuvo 30 minutos seguidos
+# encendido, se apaga. El movimiento lo vuelve a encender enseguida, asi que en la practica
+# es un descanso de pantalla, no un apagado.
+#
+# EL 30 NO ES INVENTADO: el promedio medido por encendido es de 15 minutos, asi que 30 es
+# el doble y solo corta la cola larga. REVISAR con una semana de datos.
+
+automation:
+  - id: panel_tope_de_encendido
+    alias: "Panel - tope de encendido continuo"
+    description: >
+      Apaga la pantalla si lleva 30 minutos seguidos encendida, aunque haya movimiento.
+      Cubre el caso que las otras cuatro no pueden: con gente circulando, los sensores
+      nunca se quedan quietos el tiempo que ellas exigen. Lo administra el proyecto.
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: switch.panel_pasillo_pantalla
+        to: "on"
+        for: { minutes: 30 }
+    actions:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.panel_pasillo_pantalla
+

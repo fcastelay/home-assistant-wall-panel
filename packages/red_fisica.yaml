@@ -1,0 +1,395 @@
+# La red FISICA de la casa: los dos MikroTik.
+#
+# Lo administra scripts/panel2/vistas/redes.mjs (la vista) y este archivo (los sensores).
+# El diseno esta en docs/MIKROTIK_SWITCH_L2_SETUP.md.
+#
+# POR QUE EXISTE
+#
+# La vista Redes del panel era toda hacia AFUERA: internet, latencia, Cloudflare, malla
+# Deco. No habia una sola tarjeta sobre el cableado de la casa, y los dos MikroTik son los
+# unicos equipos que saben cosas que nadie mas reporta: temperatura, tension de la fuente,
+# errores de puerto, y quien gobierna el arbol de expansion.
+#
+# LOS OID SE PROBARON UNO POR UNO ANTES DE ESCRIBIRLOS, con scripts/mikrotik/_snmp.mjs, y
+# la mitad de los que recordaba de memoria NO EXISTEN. **Y no son los mismos en los dos
+# equipos**, que es lo que mas sorprende:
+#
+#     RB5009 (TU_IP_LAN)      1.3.6.1.4.1.14988.1.1.3.11.0  temperatura de CPU  -> 450
+#                               1.3.6.1.4.1.14988.1.1.3.10.0  NO EXISTE
+#                               1.3.6.1.4.1.14988.1.1.3.8.0   NO EXISTE
+#
+#     SW_Casa (TU_IP_LAN)    1.3.6.1.4.1.14988.1.1.3.10.0  temperatura placa   -> 350
+#                               1.3.6.1.4.1.14988.1.1.3.8.0   tension             -> 249
+#                               1.3.6.1.4.1.14988.1.1.3.11.0  NO EXISTE
+#
+# Todos vienen en decimas: 450 son 45,0 C y 249 son 24,9 V.
+#
+# LO QUE ESTOS SENSORES **NO** MIDEN, y conviene saberlo:
+# `ifInErrors` devuelve 0 en el sfp1 del switch aunque la API del equipo reporta
+# `rx-overflow=250`. **El contador SNMP no incluye ese tipo de descarte.** Sirve para
+# errores de trama (FCS, alineacion), no para desbordes de buffer. Para eso hay que mirar
+# `/interface ethernet print stats` en el equipo.
+#
+# EL INDICE DE INTERFAZ NO SIGUE EL NUMERO DE PUERTO. En el switch si (ether5 = 5), pero en
+# el router NO (ether2 = 20). Se recorrio ifName para averiguarlo, igual que con la WAN.
+
+sensor:
+  # ---------------------------------------------------------------- RB5009
+  - platform: snmp
+    name: "Router temperatura"
+    unique_id: router_temperatura
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.4.1.14988.1.1.3.11.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 120
+    value_template: "{{ (value | float(0)) / 10 }}"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+  - platform: snmp
+    name: "Router segundos encendido"
+    unique_id: router_segundos_encendido
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.1.3.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    # sysUpTime viene en centesimas de segundo.
+    value_template: "{{ (value | float(0)) / 100 }}"
+    unit_of_measurement: "s"
+
+  # EL SENSOR MAS IMPORTANTE DE ESTE ARCHIVO, y hace falta explicar por que.
+  #
+  # dot1dStpRootCost es el costo del camino hasta el puente raiz del arbol de expansion.
+  # Si vale 0, ESTE equipo ES el raiz.
+  #
+  # El 29/08/2026 se descubrio que el raiz de la casa era el switch virtual del QNAP: los
+  # tres puentes habian quedado con la prioridad de fabrica y RSTP desempato por la MAC mas
+  # baja, que resulto la del NAS. Nadie se entero nunca, porque **no hay ningun evento que
+  # avise**: el arbol simplemente se reorganiza y sigue andando, hasta que el NAS reinicia y
+  # se lleva la red por delante unos segundos.
+  #
+  # Este numero lo delata el primer dia. Es la misma leccion de D-24, D-27 y D-30: mirar un
+  # numero, no esperar un evento.
+  - platform: snmp
+    name: "Router costo al raiz"
+    unique_id: router_costo_al_raiz
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.17.2.6.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 120
+    state_class: measurement
+
+  # --------------------------------------------------------------- SW_Casa
+  - platform: snmp
+    name: "Switch temperatura"
+    unique_id: switch_temperatura
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.4.1.14988.1.1.3.10.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 120
+    value_template: "{{ (value | float(0)) / 10 }}"
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+
+  # La tension de la fuente. Es el unico testigo de que la alimentacion del switch esta
+  # sana: una fuente que se degrada baja de a poco antes de fallar del todo.
+  - platform: snmp
+    name: "Switch tension"
+    unique_id: switch_tension
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.4.1.14988.1.1.3.8.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 120
+    value_template: "{{ (value | float(0)) / 10 }}"
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+
+  - platform: snmp
+    name: "Switch CPU"
+    unique_id: switch_cpu
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.25.3.3.1.2.1
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 120
+    unit_of_measurement: "%"
+    state_class: measurement
+
+  - platform: snmp
+    name: "Switch segundos encendido"
+    unique_id: switch_segundos_encendido
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.1.3.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    value_template: "{{ (value | float(0)) / 100 }}"
+    unit_of_measurement: "s"
+
+  - platform: snmp
+    name: "Switch costo al raiz"
+    unique_id: switch_costo_al_raiz
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.17.2.6.0
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 120
+    state_class: measurement
+
+  # --------------------------------------- Puertos del switch que estan en uso
+  #
+  # Solo los cinco conectados. Los cuatro libres (ether1-4) no aportan nada y llenarian la
+  # lista de entidades.
+  #
+  # `ifHighSpeed` (31.1.1.1.15.N) devuelve la velocidad EN MEGABIT, que es mas comodo que
+  # `ifSpeed` en bits. Sirve para ver a que negocio cada boca: el 29/08 `ether5` estaba en
+  # 100 Mb mientras el resto iba a 1000, que casi siempre es cable malo o equipo viejo.
+  - platform: snmp
+    name: "Switch ether5 velocidad"
+    unique_id: switch_ether5_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.5
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch ether6 velocidad"
+    unique_id: switch_ether6_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.6
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch ether7 velocidad"
+    unique_id: switch_ether7_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.7
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch ether8 velocidad"
+    unique_id: switch_ether8_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.8
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch sfp1 velocidad"
+    unique_id: switch_sfp1_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.9
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  # Los cuatro libres. Se agregan para que el panel pueda dibujar el switch COMPLETO: un
+  # mapa al que le faltan bocas no sirve para contar cuantas quedan disponibles.
+  - platform: snmp
+    name: "Switch ether1 velocidad"
+    unique_id: switch_ether1_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.1
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch ether2 velocidad"
+    unique_id: switch_ether2_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.2
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch ether3 velocidad"
+    unique_id: switch_ether3_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.3
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+  - platform: snmp
+    name: "Switch ether4 velocidad"
+    unique_id: switch_ether4_velocidad
+    host: TU_IP_LAN
+    baseoid: 1.3.6.1.2.1.31.1.1.1.15.4
+    community: !secret snmp_community
+    version: "2c"
+    accept_errors: true
+    scan_interval: 300
+    unit_of_measurement: "Mbit/s"
+
+# NO HAY `binary_sensor` DE SNMP EN HOME ASSISTANT, y esto costo un rato.
+#
+# La primera version declaraba cinco `binary_sensor` con `platform: snmp` leyendo
+# `ifOperStatus`. `check_config` dijo `valid`, el reinicio salio bien, **no hubo una sola
+# linea de error en el log**, y las cinco entidades simplemente no existieron. La
+# integracion SNMP expone `sensor` y `switch`; `binary_sensor` no.
+#
+# Que la configuracion sea valida no prueba que haga algo. Es la misma leccion de las ocho
+# automatizaciones que figuraban encendidas y nunca se dispararon: lo comprueba la entidad,
+# no el validador.
+#
+# El estado del enlace se deduce de la velocidad: `ifHighSpeed` devuelve **0 cuando el
+# puerto esta caido** y el valor negociado cuando esta arriba. Comprobado el 29/08 con los
+# cuatro puertos libres del switch, que dan 0.
+
+template:
+  - sensor:
+      # Desde cuando esta encendido cada equipo, como fecha. Asi el panel puede decir
+      # "hace 3 dias" y un reinicio inesperado se ve solo.
+      #
+      # OJO: se redondea a minutos a proposito. Sin eso el sensor cambia de valor en CADA
+      # lectura —porque el uptime siempre avanza— y ensucia la base de datos con un registro
+      # nuevo cada cinco minutos que no aporta nada.
+      # OJO CON EL FORMATO DE LA FECHA, que fue el primer intento fallido:
+      # `timestamp_utc` devuelve "2026-08-29 12:00:00", **sin zona horaria**, y
+      # `device_class: timestamp` lo rechaza sin decir nada: la entidad queda en `unknown`
+      # para siempre. Hace falta ISO 8601 CON huso, que es lo que da `.isoformat()` sobre el
+      # datetime que devuelve `as_datetime`.
+      - name: "Router encendido desde"
+        unique_id: router_encendido_desde
+        device_class: timestamp
+        state: >
+          {% set s = states('sensor.router_segundos_encendido') | float(0) %}
+          {% if s > 0 %}
+            {{ (((now().timestamp() - s) / 60) | round(0) | int * 60) | as_datetime | as_local }}
+          {% else %}
+            {{ none }}
+          {% endif %}
+
+      - name: "Switch encendido desde"
+        unique_id: switch_encendido_desde
+        device_class: timestamp
+        state: >
+          {% set s = states('sensor.switch_segundos_encendido') | float(0) %}
+          {% if s > 0 %}
+            {{ (((now().timestamp() - s) / 60) | round(0) | int * 60) | as_datetime | as_local }}
+          {% else %}
+            {{ none }}
+          {% endif %}
+
+      # Quien gobierna el arbol de expansion, en texto legible.
+      #
+      # No hay un OID que diga "el raiz se llama tal": dot1dStpDesignatedRoot devuelve ocho
+      # bytes binarios y HA no sabe leerlos. Pero con el costo de los dos equipos alcanza
+      # para saber si el arreglo del 29/08 sigue en pie.
+      - name: "Arbol de expansion"
+        unique_id: arbol_de_expansion
+        icon: mdi:file-tree
+        state: >
+          {% set r = states('sensor.router_costo_al_raiz') %}
+          {% set s = states('sensor.switch_costo_al_raiz') %}
+          {% if r in ['unknown','unavailable',''] or s in ['unknown','unavailable',''] %}
+            sin dato
+          {% elif r | int(-1) == 0 %}
+            el router
+          {% elif s | int(-1) == 0 %}
+            el switch
+          {% else %}
+            otro equipo
+          {% endif %}
+        attributes:
+          bien: >
+            {{ states('sensor.router_costo_al_raiz') | int(-1) == 0 }}
+
+automation:
+  # El aviso que hoy no existe. Si el raiz deja de ser el router, algo cambio en la capa 2
+  # y nadie se iba a enterar: no hay evento, la red sigue andando, y el sintoma recien
+  # aparece cuando el equipo que quedo de raiz se reinicia.
+  #
+  # `for: 00:30:00` porque una reconvergencia momentanea es normal cuando se enchufa o
+  # desenchufa algo. Media hora en el estado equivocado ya no es momentaneo.
+  - id: red_arbol_cambio_de_raiz
+    alias: "Red · el arbol de expansion cambio de raiz"
+    description: >
+      Avisa si el puente raiz RSTP deja de ser el RB5009. El 29/08/2026 estaba en el QNAP
+      sin que nadie lo supiera. Ver docs/MIKROTIK_SWITCH_L2_SETUP.md, seccion 3.bis.
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.arbol_de_expansion
+        to: ~
+        for: "00:30:00"
+    condition:
+      - condition: template
+        value_template: >
+          {{ states('sensor.arbol_de_expansion') not in ['el router', 'sin dato', 'unknown', 'unavailable'] }}
+    action:
+      - service: notify.persistent_notification
+        data:
+          title: "Red · cambio el raiz del arbol"
+          message: >
+            El puente raiz del arbol de expansion ya no es el router: ahora es
+            {{ states('sensor.arbol_de_expansion') }}.
+            Revisar prioridades: el RB5009 tiene que estar en 0x1000.
+
+  # Un puerto que negocia por debajo de su capacidad casi siempre es un cable dañado o un
+  # conector flojo. Se avisa una vez, no en cada lectura.
+  - id: red_puerto_a_media_velocidad
+    alias: "Red · un puerto del switch negocia lento"
+    description: >
+      Los puertos del CRS109 son gigabit. Si uno negocia a 100 Mbit o menos con el enlace
+      arriba, revisar el cable antes de que se caiga del todo.
+    mode: single
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.switch_ether6_velocidad
+          - sensor.switch_ether7_velocidad
+          - sensor.switch_ether8_velocidad
+          - sensor.switch_sfp1_velocidad
+        for: "00:10:00"
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.to_state.state | int(0) > 0 and trigger.to_state.state | int(0) < 1000 }}
+    action:
+      - service: notify.persistent_notification
+        data:
+          title: "Red · puerto lento en el switch"
+          message: >
+            {{ trigger.to_state.name }} negocio a {{ trigger.to_state.state }} Mbit/s.
+            Los puertos del switch son gigabit: mirar el cable y el conector.

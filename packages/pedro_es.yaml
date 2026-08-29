@@ -1,0 +1,48 @@
+# La integracion Xiaomi devuelve algunos valores de Pedro en chino: la potencia
+# de aspiracion, el nivel de agua y que tanque tiene puesto. HA no deja renombrar
+# las opciones de un select, asi que estos sensores son una copia legible para
+# mostrar en el panel. El select original se sigue usando para cambiar el valor.
+#
+# Si aparece un valor que no esta en el diccionario, se muestra tal cual en vez
+# de quedar vacio, asi se nota que falta agregarlo.
+
+template:
+  - sensor:
+      - name: "Pedro aspiración"
+        unique_id: pedro_aspiracion_es
+        icon: mdi:fan
+        state: >
+          {% set d = {
+            '安静': 'Silencioso', '标准': 'Normal', '中档': 'Media',
+            '强劲': 'Potente', '关闭': 'Apagada'
+          } %}
+          {% set v = states('select.ijai_v3_8cae_suction_state') %}
+          {{ d.get(v, v) }}
+        availability: >
+          {{ states('select.ijai_v3_8cae_suction_state')
+             not in ['unavailable', 'unknown'] }}
+
+      - name: "Pedro agua"
+        unique_id: pedro_agua_es
+        icon: mdi:water
+        state: >
+          {% set d = {'低': 'Poca', '中': 'Media', '高': 'Mucha', '关闭': 'Sin agua'} %}
+          {% set v = states('select.ijai_v3_8cae_water_state') %}
+          {{ d.get(v, v) }}
+        availability: >
+          {{ states('select.ijai_v3_8cae_water_state')
+             not in ['unavailable', 'unknown'] }}
+
+      - name: "Pedro depósito"
+        unique_id: pedro_deposito_es
+        icon: mdi:tray
+        state: >
+          {% set d = {
+            '二合一水箱': 'Tanque 2 en 1', '尘盒': 'Solo polvo',
+            '水箱': 'Solo agua', '无': 'Sin tanque'
+          } %}
+          {% set v = states('sensor.ijai_v3_8cae_door_state') %}
+          {{ d.get(v, v) }}
+        availability: >
+          {{ states('sensor.ijai_v3_8cae_door_state')
+             not in ['unavailable', 'unknown'] }}

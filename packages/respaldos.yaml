@@ -1,0 +1,57 @@
+# Generado por scripts/ha/respaldos.mjs — NO EDITAR A MANO.
+#
+# Sensores de vigilancia del sistema de copias de seguridad.
+#
+# POR QUE HACEN FALTA: HA trae sensores del estado del respaldo, pero NO expone el tamaño
+# del archivo ni el espacio libre del destino, que son las dos cosas que se quieren mirar
+# de un vistazo. Y sobre todo falta el dato que importa de verdad: CUANTO HACE que no hay
+# una copia correcta. Un aviso de fallo solo llega si el sistema esta lo bastante vivo como
+# para darse cuenta de que fallo; si se muere del todo, no avisa nadie.
+# Ese es el mismo razonamiento de D-24, D-27 y D-30.
+
+template:
+  - sensor:
+      # El unico numero que hay que mirar. Si pasa de 26, algo se rompio.
+      - name: "Respaldo horas desde el ultimo correcto"
+        unique_id: respaldo_horas_desde_ultimo
+        unit_of_measurement: "h"
+        state_class: measurement
+        icon: mdi:backup-restore
+        state: >
+          {% set t = states('sensor.backup_ultima_copia_de_seguridad_automatica_realizada_correctamente') %}
+          {% if t not in ['unknown','unavailable','none',''] %}
+            {{ ((now() - (t | as_datetime)).total_seconds() / 3600) | round(1) }}
+          {% else %}
+            999
+          {% endif %}
+        attributes:
+          ultimo: >
+            {% set t = states('sensor.backup_ultima_copia_de_seguridad_automatica_realizada_correctamente') %}
+            {{ (t | as_datetime | as_local).strftime('%d/%m %H:%M') if t not in ['unknown','unavailable','none',''] else 'nunca' }}
+          proximo: >
+            {% set t = states('sensor.backup_proxima_copia_de_seguridad_automatica_programada') %}
+            {{ (t | as_datetime | as_local).strftime('%d/%m %H:%M') if t not in ['unknown','unavailable','none',''] else 'sin programar' }}
+
+      # Espacio libre del Synology. La integracion informa el usado en TB y el porcentaje;
+      # el libre sale de esos dos. Se calcula aca para no repetir la cuenta en cada aviso.
+      - name: "Synology espacio libre"
+        unique_id: synology_espacio_libre
+        unit_of_measurement: "TB"
+        state_class: measurement
+        icon: mdi:harddisk
+        state: >
+          {% set u = states('sensor.nas_home_volume_1_espacio_usado') | float(0) %}
+          {% set p = states('sensor.nas_home_volume_1_volumen_utilizado') | float(0) %}
+          {{ ((u / p * 100) - u) | round(2) if p > 0 else 0 }}
+        attributes:
+          usado_por_ciento: "{{ states('sensor.nas_home_volume_1_volumen_utilizado') }}"
+
+# NO HAY SENSOR DE TAMAÑO, y es a proposito.
+#
+# Se probo un sensor de linea de comandos con `du -sm /backup`: devuelve 0. Esa ruta no
+# esta disponible donde corren los sensores del core en esta instalacion, y HA no expone
+# el tamaño del respaldo como entidad por ningun otro lado.
+#
+# Un sensor que siempre informa 0 es PEOR que no tenerlo: parece un dato y no lo es. El
+# tamaño se mira en Ajustes > Sistema > Copias de seguridad, que es donde vive el dato de
+# verdad.

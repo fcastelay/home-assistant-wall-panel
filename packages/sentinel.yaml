@@ -1,0 +1,91 @@
+# Vigilante de entidades caidas o congeladas.
+#
+# Por que existe: el 18/08/2026, revisando un corte de luz, aparecieron tres
+# fallas que llevaban meses sin que nadie se enterara:
+#   - las 4 alertas de la UPS apuntaban a sensor.ups_datos_de_estado, una entidad
+#     que quedo muerta cuando la integracion NUT recreo todo con sufijo _2.
+#     Ultima vez que avisaron: julio de 2025.
+#   - un bridge Hue entero caido, con 139 entidades y 58 escenas fantasma.
+#   - 27 entidades de Ecowitt muertas desde que se cayo la WS2900.
+# Ninguna de las tres aviso. El tablero se veia bien.
+#
+# Va en packages/ y no en configuration.yaml porque el bloque template: de ahi
+# usa forma de diccionario (template: / sensor: / binary_sensor:) y use_blueprint
+# necesita forma de lista. No se pueden mezclar bajo la misma clave.
+#
+# Las entidades se eligen por ETIQUETA, no por lista: al agregar un dispositivo
+# nuevo alcanza con etiquetarlo desde la interfaz, sin tocar este archivo.
+
+template:
+  - use_blueprint:
+      path: TheThinkingHome/entity_sentinel.yaml
+      input:
+        # Nivel 1: reportan seguido. Shelly, UPS, panel. Una hora de silencio ya es raro.
+        tier_1_name: Vivos
+        tier_1_target:
+          label_id: sentinel_vivos
+        tier_1_freeze:
+          hours: 1
+
+        # Nivel 2: reportan al cambiar algo. Sensores Hue, luces, telefonos.
+        # Media jornada callados es normal si nadie pasa por el ambiente.
+        tier_2_name: Tranquilos
+        tier_2_target:
+          label_id: sentinel_tranquilos
+        tier_2_freeze:
+          hours: 12
+
+        # Nivel 3: pilas. Los Hue reportan bateria una o dos veces por dia.
+        tier_3_name: Dormilones
+        tier_3_target:
+          label_id: sentinel_dormilones
+        tier_3_freeze:
+          hours: 30
+
+        # Lo que esta roto a proposito y espera hardware: Ecowitt hasta el GW3000,
+        # el ESPHome del Konnected hasta instalar la placa, la luz de la pileta.
+        # Sin esto avisa lo mismo todos los dias y se termina ignorando.
+        exclude_target:
+          label_id: sentinel_ignorar
+
+        # Tres minutos de gracia: absorbe los parpadeos de WiFi y de la nube.
+        unavailable_debounce:
+          minutes: 3
+
+        scan_interval: /5
+        sensor_name: Vigilante de entidades
+        unique_id: vigilante_entidades
+
+automation:
+  - id: vigilante_entidades_aviso
+    alias: "Vigilante - entidades caidas o congeladas"
+    description: >
+      Avisa cuando el vigilante encuentra entidades que dejaron de reportar.
+
+      El disparador numeric_state solo actua al CRUZAR el umbral: se dispara una
+      vez cuando la cuenta pasa de 0 a 1 o mas, y no vuelve a molestar hasta que
+      baje a 0 y suba de nuevo. Por eso no hace falta ninguna condicion extra
+      para evitar la repeticion.
+
+      Los 15 minutos de espera evitan que salte en cada reinicio de HA, cuando
+      todo esta unavailable por unos segundos.
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.vigilante_de_entidades
+        above: 0
+        for: "00:15:00"
+    actions:
+      - action: notify.mobile_app_iphone_de_fer
+        data:
+          title: "{{ states('sensor.vigilante_de_entidades') }} entidades sin reportar"
+          message: >
+            {% set d = state_attr('sensor.vigilante_de_entidades','devices') or [] %}
+            {%- for x in d[:8] %}
+            {{ x.name | default(x.entity_id, true) }} - {{ x.reason | default('sin dato', true) }}
+            {%- endfor %}
+            {%- if d | count > 8 %}
+            ... y {{ (d | count) - 8 }} mas
+            {%- endif %}
+          data:
+            group: vigilante

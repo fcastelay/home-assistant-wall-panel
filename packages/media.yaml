@@ -1,0 +1,87 @@
+# Media: mantener vivas las conexiones con los Apple TV.
+#
+# POR QUE EXISTE, y es del 29/08/2026:
+#
+# Persona 1 estaba reproduciendo YouTube en el Apple TV del living y el panel no mostraba
+# nada. La entidad decia:
+#
+#     media_player.apple_tv_living   paused   "Severance"   app_name: TV
+#     ultimo cambio: hace 26 minutos
+#
+# O sea que informaba una serie que ya no estaba, en pausa, mientras el aparato reproducia
+# musica. **La integracion figuraba `loaded` y su conexion estaba muerta.** Al recargar la
+# entrada, la entidad paso a `playing / YouTube / thank u, next` en nueve segundos.
+#
+# Las OTRAS CUATRO Apple TV de la casa estaban igual: 125 minutos sin una sola
+# actualizacion. Nadie se habia dado cuenta nunca.
+#
+# POR QUE UNA RECARGA POR RELOJ Y NO UN DETECTOR DE "CONGELADO"
+#
+# Se penso en avisar cuando una entidad lleva mucho sin actualizarse, y no sirve: **un Apple
+# TV apagado tampoco se actualiza durante horas, y eso es normal.** No hay forma de
+# distinguir "dormido" de "colgado" mirando solo la entidad; haria falta preguntarle al
+# aparato, que es justo lo que esta roto.
+#
+# Entonces se acota el dano en vez de detectarlo: una recarga diaria a las 05:00 pone un
+# techo de 24 horas a cuanto puede durar un cuelgue. Recargar una entrada es barato y no
+# molesta a nadie a esa hora.
+#
+# LA HORA NO ES CASUAL: 05:00 es despues de la copia de seguridad de las 03:30 y antes de
+# que alguien se levante. Si se solapara con el respaldo competirian por la red.
+
+automation:
+  - id: media_apple_tv_reconectar
+    alias: "Media · reconectar los Apple TV"
+    description: >
+      Recarga las cinco integraciones de Apple TV una vez por dia. El 29/08/2026 las cinco
+      estaban colgadas informando datos viejos, con la integracion en `loaded`. Ver la
+      bitacora de esa fecha.
+    mode: single
+    trigger:
+      - platform: time
+        at: "05:00:00"
+    action:
+      # Una por una y con pausa: recargar las cinco de golpe hace que pyatv abra cinco
+      # conexiones a la vez y alguna se cae en el intento.
+      - repeat:
+          for_each:
+            - media_player.apple_tv_living
+            - media_player.living
+            - media_player.habitacion
+            - media_player.quincho
+            - media_player.dormitorio_2_2
+          sequence:
+            - service: homeassistant.reload_config_entry
+              target:
+                entity_id: "{{ repeat.item }}"
+              continue_on_error: true
+            - delay: "00:00:05"
+      - service: logbook.log
+        data:
+          name: "Media"
+          message: "Recargadas las integraciones de Apple TV"
+
+  # El boton para hacerlo a mano cuando se nota que el panel miente, sin esperar a las 05:00.
+  - id: media_apple_tv_reconectar_ahora
+    alias: "Media · reconectar los Apple TV ahora"
+    description: >
+      Lo mismo que la anterior, pero a pedido. Se dispara desde Herramientas para
+      desarrolladores o desde el panel.
+    mode: single
+    trigger:
+      - platform: event
+        event_type: reconectar_apple_tv
+    action:
+      - repeat:
+          for_each:
+            - media_player.apple_tv_living
+            - media_player.living
+            - media_player.habitacion
+            - media_player.quincho
+            - media_player.dormitorio_2_2
+          sequence:
+            - service: homeassistant.reload_config_entry
+              target:
+                entity_id: "{{ repeat.item }}"
+              continue_on_error: true
+            - delay: "00:00:05"

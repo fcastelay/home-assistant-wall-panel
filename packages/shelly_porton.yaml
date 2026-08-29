@@ -1,0 +1,54 @@
+# Vigilancia térmica del Shelly 2.5 del portón (TU_IP_LAN).
+#
+# POR QUÉ: el SHSW-25 es el modelo de Shelly con peor fama térmica. Corre caliente de
+# fábrica y en una caja cerrada sin ventilación es peor. Su protección corta el relé
+# alrededor de los 95 °C, y cuando corta, el portón deja de funcionar hasta que se
+# enfría.
+#
+# Medido el 20/08/2026, en reposo y con el relé del portón apagado:
+#   58,67 -> 59,39 -> 60,49 °C en poco más de una hora.
+# No es peligroso hoy. La pregunta es a cuánto llega un mediodía de enero, y para
+# contestarla hace falta empezar a registrar ahora.
+#
+# OJO CON state_class: measurement. Sin eso HA no genera estadísticas de largo plazo y
+# los datos se purgan a los 30 días — en enero no habría contra qué comparar. Es la
+# misma lección que dejaron los sensores de altura de ríos, que estuvieron un año sin
+# state_class y perdieron toda su historia.
+#
+# El aviso por temperatura alta NO está acá: se crea por API junto con las demás,
+# en scripts/ha/shelly-porton-alerta.mjs.
+
+rest:
+  - resource: http://TU_IP_LAN/status
+    scan_interval: 60
+    timeout: 10
+    sensor:
+      - name: Portón Shelly temperatura
+        unique_id: porton_shelly_temperatura
+        value_template: "{{ value_json.temperature | round(1) }}"
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+
+      # Sirve para detectar reinicios: si baja de golpe, el aparato se reinició.
+      # El 20/08 marcaba 3 h, justo después de los cortes de térmica para el Sonoff.
+      - name: Portón Shelly horas encendido
+        unique_id: porton_shelly_uptime
+        value_template: "{{ (value_json.uptime / 3600) | round(1) }}"
+        unit_of_measurement: h
+        state_class: measurement
+
+      # -63 dBm el 20/08. Si empeora, el portón puede dejar de responder por red.
+      - name: Portón Shelly señal wifi
+        unique_id: porton_shelly_rssi
+        value_template: "{{ value_json.wifi_sta.rssi }}"
+        unit_of_measurement: dBm
+        device_class: signal_strength
+        state_class: measurement
+
+    binary_sensor:
+      # El propio Shelly avisa cuando cortó por temperatura.
+      - name: Portón Shelly sobrecalentado
+        unique_id: porton_shelly_sobrecalentado
+        value_template: "{{ value_json.overtemperature }}"
+        device_class: heat

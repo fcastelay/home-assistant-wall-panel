@@ -1,0 +1,85 @@
+# Aprendizaje continuo de los tiempos de movimiento.
+#
+# Hasta ahora los minutos de espera de cada ambiente estaban escritos adentro de
+# cada automatizacion, calculados una sola vez sobre el historial de agosto 2026.
+# Un numero fijo envejece: cambian los horarios, la epoca del año, se agrega un
+# sensor.
+#
+# Estos ayudantes guardan el valor vigente de cada ambiente. El script
+# shell/aprender_movimientos.py los recalcula todas las semanas con la misma
+# medicion original (p95 del tiempo quieto adentro, separando las quedadas de las
+# salidas mirando si otro sensor detecto algo en el medio), y las automatizaciones
+# los leen en vez de tener el numero adentro.
+#
+# Los valores de arranque son los que se midieron en agosto de 2026.
+
+input_number:
+  espera_pasillo:
+    name: Espera Pasillo
+    icon: mdi:timer-sand
+    min: 1
+    max: 30
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    initial: 6
+
+  espera_cocina:
+    name: Espera Cocina
+    icon: mdi:timer-sand
+    min: 1
+    max: 30
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    initial: 3
+
+  espera_living_comedor:
+    name: Espera Living-Comedor
+    icon: mdi:timer-sand
+    min: 1
+    max: 30
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    initial: 4.5
+
+  espera_garage:
+    name: Espera Garage
+    icon: mdi:timer-sand
+    min: 1
+    max: 30
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    initial: 6.5
+
+  espera_galeria:
+    name: Espera Galería
+    icon: mdi:timer-sand
+    min: 1
+    max: 30
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    initial: 2
+
+  espera_lavadero:
+    name: Espera Lavadero
+    icon: mdi:timer-sand
+    min: 1
+    max: 30
+    step: 0.5
+    unit_of_measurement: min
+    mode: box
+    initial: 4
+
+input_text:
+  aprendizaje_movimientos:
+    name: Último aprendizaje
+    icon: mdi:school
+    max: 255
+    initial: "todavía no corrió"
+
+shell_command:
+  aprender_movimientos: "python3 /config/shell/aprender_movimientos.py"
