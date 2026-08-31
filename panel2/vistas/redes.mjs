@@ -11,6 +11,7 @@
 //   binary_sensor.internet · enlace_wan · router_mikrotik · tunel_cloudflare · pc_oficina
 //   sensor.ip_publica · latencia_internet · dispositivos_conectados · estado_de_la_red
 //   button.despertar_pc_oficina
+//   sensor.fast_com_descarga   (integracion fastdotcom, agregada el 31/08/2026)
 
 import { T, R, alfa, js, tarjeta, aire, cuadro, fondoOlas } from '../diseno.mjs'
 import { navbar } from '../navbar.mjs'
@@ -115,7 +116,7 @@ const estiloGrafico = `
  * Latencia a internet, 24 h.
  *
  * Los umbrales NO son inventados: 60 ms es lo normal de una fibra argentina a
- * Cloudflare (medido 16,5 ms el 28/08, con margen), y arriba de 150 ms ya se nota
+ * Cloudflare (medido NN ms el 28/08, con margen), y arriba de 150 ms ya se nota
  * en una videollamada. Se revisan cuando haya una semana de historia.
  */
 const latencia = () => ({
@@ -153,6 +154,119 @@ const equipos = () => ({
   decimals: 0,
   height: 70,
   show: { labels: true, points: false, icon: true, state: true, extrema: true },
+  card_mod: { style: estiloGrafico },
+})
+
+// -------------------------------------------------------- capacidad de la linea
+
+// Integracion `fastdotcom`, instalada el 31/08/2026.
+//
+// QUE MIDE Y QUE NO, porque la diferencia decide como se dibuja:
+//
+//   - **Solo bajada.** No da subida ni ping. Los graficos de `sensor.wan_bajada` y
+//     `sensor.wan_subida` que ya estan mas abajo miden **lo que se esta usando**; esto mide
+//     **lo que la linea puede dar**. Son cosas distintas y por eso va en su propia seccion.
+//   - **Se mide DESDE HA**, que corre en una VM de VirtualBox sobre la mini PC del panel.
+//     El 28/08 Persona 1 midio **1,1 Gbps con fast.com desde la PC de la oficina**; HA marca
+//     ~750. La diferencia puede ser la VM, el momento del dia, o el servidor que le toco a
+//     cada uno. **No esta medido cual de las tres.**
+//
+// Por eso la tarjeta NO dice "tu internet anda a X". Dice de donde salio el numero. Un panel
+// que afirma mas de lo que sabe es peor que uno que no muestra nada.
+//
+// PARA QUE SIRVE IGUAL, y no es poco: como linea de base. Si esto vive en ~750 y un dia
+// marca 80, hay un problema real — sin importar cual sea el techo verdadero de la linea.
+
+const FAST = 'sensor.fast_com_descarga'
+
+// Referencia para el color. 750 es lo que midio HA el 31/08; no es el plan contratado, que
+// **no esta confirmado** (ver MIKROTIK_HARDENING_AND_OPTIMIZATION.md §2.3: la WAN esta en un
+// puerto de 1 Gbps y sobra un puerto de 2,5 sin usar).
+const FAST_REF = 750
+
+const velocidad = () => tarjeta({
+  entidad: FAST,
+  tap: { action: 'more-info' },
+  radio: R.grande,
+  relleno: '24px 26px',
+  grid: { columns: 'full' },
+  html: js(`
+    const s = states['${FAST}'];
+    const v = s && !isNaN(parseFloat(s.state)) ? parseFloat(s.state) : null;
+    const pct = v === null ? 0 : Math.min(100, v / ${FAST_REF} * 100);
+
+    // Los cortes salen de la referencia medida, no de un numero redondo: la mitad de lo
+    // habitual ya es raro, y un quinto es una falla.
+    const col = v === null ? '${T.texto3}'
+      : (v >= ${FAST_REF} * 0.6 ? '${T.okTexto}'
+      : (v >= ${FAST_REF} * 0.2 ? '${T.alerta}' : '${T.peligro}'));
+
+    // Cuanto hace que se midio. Si tiene mas de 3 h el numero es viejo y hay que decirlo:
+    // la integracion consulta sola cada una hora.
+    let cuando = 'sin medir';
+    if (s) {
+      const min = Math.floor((Date.now() - Date.parse(s.last_changed)) / 60000);
+      cuando = min < 1 ? 'recien' : (min < 60 ? 'hace ' + min + ' min' : 'hace ' + Math.floor(min / 60) + ' h');
+    }
+
+    return '<div style="width:100%">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline">'
+      +   '<span style="font-size:14px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${T.texto3}">Capacidad de bajada</span>'
+      +   '<span style="font-size:13px;color:${T.texto3}">' + cuando + '</span>'
+      + '</div>'
+      + '<div style="display:flex;align-items:baseline;gap:12px;margin-top:8px">'
+      +   '<span style="font-family:${T.sora};font-size:46px;font-weight:800;line-height:1;color:' + col + ';font-variant-numeric:tabular-nums">'
+      +     (v === null ? '--' : v.toFixed(0)) + '</span>'
+      +   '<span style="font-size:17px;color:${T.texto2}">Mbit/s</span>'
+      + '</div>'
+      + '<div style="height:6px;border-radius:3px;background:${T.fill};margin-top:14px;overflow:hidden">'
+      +   '<div style="height:100%;width:' + pct.toFixed(0) + '%;background:' + col + ';border-radius:3px"></div></div>'
+      // La letra chica no es decorativa: sin ella el numero se lee como "la velocidad de
+      // internet de la casa", y no es eso.
+      + '<div style="font-size:12.5px;color:${T.texto3};margin-top:10px;line-height:1.45">'
+      +   'fast.com medido <b style="color:${T.texto2}">desde Home Assistant</b>, que corre en una máquina virtual. '
+      +   'Sirve como referencia contra sí misma: lo habitual son ~${FAST_REF}. No mide subida ni ping.'
+      + '</div>'
+      + '</div>';
+  `),
+})
+
+// Botón aparte y no un toque en la tarjeta grande: medir descarga cientos de MB, y este
+// panel está en la pared de un pasillo donde se lo roza sin querer.
+const medirAhora = () => tarjeta({
+  entidad: FAST,
+  tap: { action: 'call-service', service: 'homeassistant.update_entity', service_data: { entity_id: FAST } },
+  radio: R.media,
+  relleno: '14px 18px',
+  alto: '62px',
+  grid: { columns: 'full' },
+  fondo: alfa(T.acento, 0.10),
+  borde: alfa(T.acento, 0.32),
+  html: `<div style="display:flex;align-items:center;justify-content:center;gap:10px;height:100%;color:${T.acento};font-size:15px;font-weight:600">
+    <ha-icon icon="mdi:speedometer" style="--mdc-icon-size:20px"></ha-icon>Medir ahora</div>`,
+})
+
+const velocidadHistoria = () => ({
+  type: 'custom:mini-graph-card',
+  name: 'Capacidad · 24 h',
+  icon: 'mdi:download-network',
+  grid_options: { columns: 'full' },
+  entities: [{ entity: FAST, name: 'Bajada' }],
+  // Un punto por hora porque la integracion mide una vez por hora: pedir mas resolucion
+  // dibujaria escalones planos entre medicion y medicion, que se leen como un sensor trabado.
+  // Y 24 h y no una semana porque el sensor es del 31/08: mini-graph-card rellena lo que no
+  // existe con el primer valor y pinta una recta que parece un sensor congelado.
+  hours_to_show: 24,
+  points_per_hour: 1,
+  line_width: 2,
+  decimals: 0,
+  height: 70,
+  show: { labels: true, points: true, icon: true, state: true, extrema: true, average: true },
+  color_thresholds: [
+    { value: 0, color: T.peligro },
+    { value: FAST_REF * 0.2, color: T.alerta },
+    { value: FAST_REF * 0.6, color: T.okTexto },
+  ],
   card_mod: { style: estiloGrafico },
 })
 
@@ -514,6 +628,9 @@ export function vistaRedes () {
       { type: 'grid', column_span: 2, cards: [cabecera(), cuadro()] },
       { type: 'grid', column_span: 2, cards: [rotulo('Sondas'), sondas()] },
       { type: 'grid', column_span: 2, cards: [rotulo('Internet'), ahora()] },
+      // La capacidad va DESPUES del trafico en vivo y antes de los graficos de uso: primero
+      // que se ve cuanto se esta usando, y despues cuanto se podria.
+      { type: 'grid', column_span: 2, cards: [rotulo('Capacidad de la linea'), velocidad(), medirAhora(), velocidadHistoria()] },
       { type: 'grid', cards: [traficoBajada()] },
       { type: 'grid', cards: [traficoSubida()] },
       { type: 'grid', column_span: 2, cards: [consumo()] },

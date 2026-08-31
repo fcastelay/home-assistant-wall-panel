@@ -11,6 +11,47 @@
 
 template:
   - sensor:
+      # SEPARAR LA EMERGENCIA DE LA TAREA PENDIENTE, y por que hizo falta.
+      #
+      # El 30/08/2026 llego el aviso "hace 28 h que no hay respaldo". Era falso: la copia de
+      # esa madrugada SI se habia hecho, en dos de tres destinos. Lo que fallaba era el
+      # Synology, y como HA solo adelanta `last_completed_automatic_backup` cuando suben
+      # **todos** los agentes, el contador seguia subiendo con una copia buena en la mano.
+      #
+      # El sensor de horas de mas abajo mide "hace cuanto no hay copia PERFECTA". Eso mezcla
+      # dos situaciones que piden reacciones muy distintas:
+      #
+      #     no se esta haciendo ninguna copia    -> emergencia
+      #     se hace, pero un destino falla       -> tarea pendiente
+      #
+      # Con las dos haciendo el mismo ruido todas las noches, la emergencia se vuelve
+      # invisible. Estos dos sensores las separan.
+
+      # LA EMERGENCIA. `ultimo_intento` avanza cada vez que el sistema ARRANCA una copia,
+      # falle o no despues. Si esto pasa de 26 horas, el respaldo ni se esta intentando: se
+      # rompio el horario, el administrador, o HA entero.
+      #
+      # LIMITE HONESTO: "se intento" no es "quedo una copia buena". Un intento que falle en
+      # TODOS los destinos cuenta como intento igual. En la practica el destino local casi
+      # nunca falla —los que fallan son los remotos— pero no es garantia, y conviene saberlo
+      # antes de confiar el sueño a este numero.
+      - name: "Respaldo horas desde el ultimo intento"
+        unique_id: respaldo_horas_desde_intento
+        unit_of_measurement: "h"
+        state_class: measurement
+        icon: mdi:backup-restore
+        state: >
+          {% set t = states('sensor.backup_ultimo_intento_de_copia_de_seguridad_automatica') %}
+          {% if t not in ['unknown','unavailable','none',''] %}
+            {{ ((now() - (t | as_datetime)).total_seconds() / 3600) | round(1) }}
+          {% else %}
+            999
+          {% endif %}
+        attributes:
+          ultimo: >
+            {% set t = states('sensor.backup_ultimo_intento_de_copia_de_seguridad_automatica') %}
+            {{ (t | as_datetime | as_local).strftime('%d/%m %H:%M') if t not in ['unknown','unavailable','none',''] else 'nunca' }}
+
       # El unico numero que hay que mirar. Si pasa de 26, algo se rompio.
       - name: "Respaldo horas desde el ultimo correcto"
         unique_id: respaldo_horas_desde_ultimo
@@ -55,3 +96,31 @@ template:
 # Un sensor que siempre informa 0 es PEOR que no tenerlo: parece un dato y no lo es. El
 # tamaño se mira en Ajustes > Sistema > Copias de seguridad, que es donde vive el dato de
 # verdad.
+
+
+  - binary_sensor:
+      # LA TAREA PENDIENTE. Se enciende cuando el ultimo intento quedo por delante de la
+      # ultima copia correcta: se hizo una copia, pero algun destino no la recibio.
+      #
+      # No es una emergencia —hay copia, en otro lado— pero **no debe apagarse solo con el
+      # tiempo**: queda prendido hasta que una copia complete en los tres destinos, que es
+      # exactamente la condicion que hay que resolver.
+      - name: "Respaldo con destino caido"
+        unique_id: respaldo_destino_caido
+        device_class: problem
+        icon: mdi:cloud-alert
+        state: >
+          {% set i = states('sensor.backup_ultimo_intento_de_copia_de_seguridad_automatica') %}
+          {% set c = states('sensor.backup_ultima_copia_de_seguridad_automatica_realizada_correctamente') %}
+          {% if i in ['unknown','unavailable','none',''] or c in ['unknown','unavailable','none',''] %}
+            false
+          {% else %}
+            {{ (i | as_datetime) > (c | as_datetime) }}
+          {% endif %}
+        attributes:
+          ultimo_intento: >
+            {% set t = states('sensor.backup_ultimo_intento_de_copia_de_seguridad_automatica') %}
+            {{ (t | as_datetime | as_local).strftime('%d/%m %H:%M') if t not in ['unknown','unavailable','none',''] else 'nunca' }}
+          ultima_completa: >
+            {% set t = states('sensor.backup_ultima_copia_de_seguridad_automatica_realizada_correctamente') %}
+            {{ (t | as_datetime | as_local).strftime('%d/%m %H:%M') if t not in ['unknown','unavailable','none',''] else 'nunca' }}

@@ -47,6 +47,19 @@ const ICONOS = [
   ['red.png', 'Globe with meridians', 'globe_with_meridians_3d.png'],
   ['engranaje.png', 'Gear', 'gear_3d.png'],
 
+  // --- Vista Salud, agregados el 31/08/2026 ---
+  ['corazon.png', 'Red heart', 'red_heart_3d.png'],
+  ['corazon-latido.png', 'Beating heart', 'beating_heart_3d.png'],
+  ['balanza.png', 'Balance scale', 'balance_scale_3d.png'],
+  // No hay emoji de tensiometro en Fluent. El estetoscopio es lo mas cercano y se lee.
+  ['estetoscopio.png', 'Stethoscope', 'stethoscope_3d.png'],
+  ['pulmon.png', 'Lungs', 'lungs_3d.png'],
+  ['bici.png', 'Bicycle', 'bicycle_3d.png'],
+  // Los emoji de personas tienen variantes de tono de piel: el archivo lleva \_default y
+  // cuelga de Default/3D/, no de 3D/. El de la bici no, porque no es una persona.
+  ['caminante.png', 'Person walking', 'person_walking_3d_default.png'],
+  ['reloj-apple.png', 'Watch', 'watch_3d.png'],
+
   // --- Los 28 del resto del panel (ICONOS-PANEL-COMPLETO.md) ---
   ['candado.png', 'Locked', 'locked_3d.png'],
   ['candado-abierto.png', 'Unlocked', 'unlocked_3d.png'],

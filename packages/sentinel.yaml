@@ -76,7 +76,7 @@ automation:
         above: 0
         for: "00:15:00"
     actions:
-      - action: notify.mobile_app_iphone_de_fer
+      - action: notify.mobile_app_iphone_de_persona1
         data:
           title: "{{ states('sensor.vigilante_de_entidades') }} entidades sin reportar"
           message: >

@@ -20,6 +20,8 @@ import { vistaEnergia, vistaFactura } from './vistas/energia.mjs'
 import { vistaAlarma } from './vistas/alarma.mjs'
 import { vistaClima } from './vistas/clima.mjs'
 import { vistaRedes } from './vistas/redes.mjs'
+import { vistaSalud } from './vistas/salud.mjs'
+import { vistaTendencias } from './vistas/tendencias.mjs'
 import { vistaAutomatizaciones } from './vistas/automatizaciones.mjs'
 import { vistaMas } from './vistas/mas.mjs'
 import { vistaMedia, vistaAparatos, vistaCamioneta, vistaSausalito } from './vistas/varias.mjs'
@@ -124,8 +126,14 @@ export function construir (base) {
   const conAutos = conRedes.filter(v => v.path !== 'automatizaciones').concat([vistaAutomatizaciones()])
   // "Mas": el cajon de las seis vistas que salieron de la barra el 29/08.
   const conMas = conAutos.filter(v => v.path !== 'mas').concat([vistaMas()])
+  // Salud tambien es nueva (31/08/2026) y va por el mismo camino que Redes: no existe en el
+  // panel viejo, asi que se agrega al final reemplazando la de la corrida anterior.
+  const conSalud = conMas.filter(v => v.path !== 'salud').concat([vistaSalud()])
+  // Tendencias no va en la barra: se llega desde la vista Salud. Es para mirar sentado,
+  // no de paso por el pasillo.
+  const conTend = conSalud.filter(v => v.path !== 'tendencias').concat([vistaTendencias()])
 
-  return { ...base, views: normalizarNavbar(normalizarCuadros(conMas)) }
+  return { ...base, views: normalizarNavbar(normalizarCuadros(conTend)) }
 }
 
 function principal () {

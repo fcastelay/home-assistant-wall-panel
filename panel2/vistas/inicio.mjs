@@ -147,7 +147,7 @@ const accionesRapidas = () => ({
 
 const GENTE = [
   {
-    nombre: 'Persona 1', inicial: 'F', persona: 'person.persona1', movil: 'iphone_de_fer',
+    nombre: 'Persona 1', inicial: 'F', persona: 'person.persona1', movil: 'iphone_de_persona1',
     grad: 'linear-gradient(135deg,#57c7ff,#8b93ff)',
   },
   {
@@ -510,7 +510,7 @@ const alarmaCorta = () => tarjeta({
  *
  * `sensor.lavadero_consumo_general_consumo_hoy` NO sirve para esto: sus estadisticas
  * arrancan el 16/08/2026, o sea 12 dias. Los dias que comparten dan lo mismo (20,4 /
- * 13,9 / 15,1 / 14,9 / 19,2 / 15,1), asi que se valida uno contra el otro.
+ * 13,9 / 15,1 / 14,9 / NN / 15,1), asi que se valida uno contra el otro.
  *
  * `change` sobre periodo `day` es el consumo de cada dia: la diferencia del contador
  * acumulado. No es una media ni una interpolacion.
@@ -552,6 +552,10 @@ const modos = () => ({
 
 // ---------------------------------------------------------------- escenas
 
+// LAS LUCES DEL ESCRITORIO, PARA EL BOTON DE APAGAR. Son las mismas que tiene la escena
+// `scene.escritorio_apagado`; se repiten aca porque el boton ya no usa la escena (ver abajo).
+const ESCRITORIO = ['light.tira_monitor', 'light.h61c3']
+
 const ESCENAS = [
   // El quinto queda en MDI a proposito: es la excepcion que marca ICONOS-PANEL-COMPLETO.md
   // ("no hay emoji bueno" para apagar). Un emoji forzado seria peor que el glifo.
@@ -559,7 +563,19 @@ const ESCENAS = [
   ['scene.concentracion',      'foco.png',     'Concentración', 'Luz fría',           T.info],
   ['scene.pelicula',           'claqueta.png', 'Película',      'Casi a oscuras',     T.lila],
   ['scene.relax',              'vela.png',     'Relax',         'Cálida baja',        T.rosa],
-  ['scene.escritorio_apagado', 'mdi:power',    'Apagar',        'Todo el escritorio', T.texto3],
+
+  // APAGAR NO VA POR ESCENA, Y ES UNA CORRECCION DEL 30/08/2026.
+  //
+  // Una escena **no le manda comando a una entidad que ya esta en el estado destino**: la
+  // saltea. Si HA cree que una luz esta apagada y en realidad esta prendida —que pasa cuando
+  // se desincroniza el estado, y con las tiras WiFi pasa— la escena no manda nada y la luz
+  // se queda prendida. Medido: el 30/08 la escena apago `light.tira_monitor` (que HA tenia
+  // como prendida) y no toco `light.h61c3` (que HA ya tenia como apagada).
+  //
+  // `light.turn_off` SIEMPRE manda la orden, mire el estado o no. Para apagar es lo correcto;
+  // las escenas son para *componer* una luz, no para apagarla.
+  ['light.turn_off',           'mdi:power',    'Apagar',        'Todo el escritorio', T.texto3,
+    { action: 'call-service', service: 'light.turn_off', service_data: { entity_id: ESCRITORIO } }],
 ]
 
 const escenas = () => ({
@@ -567,10 +583,12 @@ const escenas = () => ({
   columns: 5,
   square: false,
   grid_options: { columns: 'full' },
-  cards: ESCENAS.map(([ent, ico, nombre, sub, color]) => tarjeta({
-    entidad: ent,
-    tap: { action: 'call-service', service: 'scene.turn_on', service_data: { entity_id: ent } },
-    hold: { action: 'more-info' },
+  cards: ESCENAS.map(([ent, ico, nombre, sub, color, accion]) => tarjeta({
+    // Sin `entity` en el boton de apagar: no hay una entidad de la que dependa su aspecto, y
+    // ponerla haria que `more-info` abriera un servicio en vez de una luz.
+    entidad: accion ? undefined : ent,
+    tap: accion || { action: 'call-service', service: 'scene.turn_on', service_data: { entity_id: ent } },
+    hold: accion ? { action: 'none' } : { action: 'more-info' },
     radio: R.media,
     relleno: '16px',
     alto: '104px',

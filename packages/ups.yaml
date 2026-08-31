@@ -1,0 +1,83 @@
+# Sensores de la UPS: cuánto falta para que se apague todo, y un estado en el que se pueda confiar.
+#
+# POR QUE EXISTE ESTE ARCHIVO
+#
+# 1. **El dato que importa no estaba a la vista.** La UPS informa la autonomía en SEGUNDOS
+#    (`sensor.ups_autonomia_de_la_bateria_2`), que nadie lee de un vistazo, y el reloj del
+#    pasillo mostraba sólo el porcentaje de carga. El porcentaje no dice cuánto falta: con la
+#    exhibidora del quincho prendida, 100 % dura mucho menos que con la casa en reposo.
+#
+# 2. **El sensor crudo oscila y no se puede mostrar tal cual.** Medido el 30/08/2026 con la
+#    UPS EN RED, quieta, sin que pasara nada:
+#
+#        3396 · 3639 · 3471 · 3507 · 3759 · 3798 · 3621 · 3879 · 3696 · 3918 · 3735 · 3999
+#
+#    Son ±10 % minuto a minuto. Puesto crudo en el reloj, el número bailaría entre 56 y 66
+#    minutos sin que nadie toque nada, y un número que baila se deja de mirar.
+#
+# 3. **El estado de NUT es COMPUESTO y por eso una automatización nunca disparó.**
+#    `automations.yaml` tiene un aviso al Awtrix con `to: On Battery`, y ese texto exacto
+#    **no existe**: los valores reales son `Online`, `Online, Battery Charging` y
+#    `On Battery, Battery Discharging`. Es el caso número nueve de "automatización prolija,
+#    en on, que nunca se disparó" en esta instalación.
+
+sensor:
+  # Media móvil de 5 minutos sobre la autonomía cruda. No inventa nada: promedia lo que la
+  # UPS informa. El `outlier` de adelante descarta los saltos absurdos antes de promediar —
+  # sin eso, una sola lectura rara arrastra el promedio varios minutos.
+  - platform: filter
+    name: "UPS autonomia suavizada"
+    unique_id: ups_autonomia_suavizada
+    entity_id: sensor.ups_autonomia_de_la_bateria_2
+    filters:
+      - filter: outlier
+        window_size: 5
+        radius: 900          # 15 min de desvío: más que eso es lectura mala, no realidad
+      - filter: time_simple_moving_average
+        window_size: "00:05"
+        precision: 0
+
+template:
+  - sensor:
+      # EL NUMERO QUE SE MUESTRA. En minutos, que es como piensa una persona.
+      - name: "UPS minutos restantes"
+        unique_id: ups_minutos_restantes
+        unit_of_measurement: "min"
+        state_class: measurement
+        icon: mdi:battery-clock
+        state: >
+          {% set s = states('sensor.ups_autonomia_suavizada') %}
+          {% if s in ['unknown','unavailable','none',''] %}
+            {% set s = states('sensor.ups_autonomia_de_la_bateria_2') %}
+          {% endif %}
+          {{ (s | float(0) / 60) | round(0) if s not in ['unknown','unavailable','none',''] else 0 }}
+        attributes:
+          # La autonomía que informa la UPS es CON LA CARGA ACTUAL. Si durante el corte se
+          # prende algo grande, el tiempo real va a ser menor. Se guarda la carga para poder
+          # leer el número con esa salvedad puesta.
+          carga: "{{ states('sensor.ups_carga_2') }}"
+          crudo: "{{ states('sensor.ups_autonomia_de_la_bateria_2') }}"
+
+  - binary_sensor:
+      # EL ESTADO EN EL QUE SI SE PUEDE CONFIAR.
+      #
+      # Se mira `ups_datos_de_estado_2`, que trae el código crudo de NUT (`OL`, `OB DISCHRG`,
+      # `OL CHRG`, `LB`), y se busca `OB` COMO SUBCADENA. Asi funciona con cualquier
+      # combinación de banderas, presente o futura.
+      #
+      # Contra la alternativa —comparar el texto traducido con `On Battery`— que es
+      # exactamente lo que está roto hoy: depende de la traducción de la integración y de que
+      # no haya banderas extra. Las dos cosas cambian.
+      - name: "UPS en bateria"
+        unique_id: ups_en_bateria
+        device_class: problem
+        state: "{{ 'OB' in states('sensor.ups_datos_de_estado_2') }}"
+        attributes:
+          minutos: "{{ states('sensor.ups_minutos_restantes') }}"
+
+      # Batería baja: la UPS lo avisa con la bandera `LB` y no hay que calcularlo por
+      # porcentaje. Cuando aparece, el corte es inminente.
+      - name: "UPS bateria critica"
+        unique_id: ups_bateria_critica
+        device_class: battery
+        state: "{{ 'LB' in states('sensor.ups_datos_de_estado_2') }}"

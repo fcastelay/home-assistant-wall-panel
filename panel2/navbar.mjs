@@ -32,6 +32,17 @@ export const RUTAS = [
   ['mdi:weather-partly-rainy','Clima',     'clima',        N.cielo,    'clima.png'],
   ['mdi:multimedia',          'Media',     'media',        N.rosa,     'musica.png'],
   ['mdi:lightning-bolt',      'Energía',   'energia',      T.alerta,   'rayo.png'],
+  // SALUD ENTRA EN LA BARRA Y NO EN "Mas", el 31/08/2026, a pedido explicito.
+  //
+  // Rompe la regla de las nueve que se fijo el 29/08. Se acepta porque diez todavia entran
+  // sin apretar: 10 x 64 + 9 x 4 = 676 px en una barra de 1080. La regla era sobre CUANTOS
+  // caben comodos, no sobre el numero nueve.
+  //
+  // El color es el rosa fuerte del corazon, el mismo que usa la vista. Media, dos lugares
+  // antes, usa un rosa mas claro (#ff9dc4): son distintos y no son vecinos. Ademas el color
+  // casi no se ve, porque el glifo va transparente debajo del PNG — es el respaldo por si
+  // el icono faltara.
+  ['mdi:heart-pulse',         'Salud',     'salud',        T.rosa,     'corazon.png'],
   ['mdi:dots-horizontal',     'Más',       'mas',          T.texto2,   'mas.png'],
 
   // DE CATORCE A NUEVE, el 29/08/2026.
@@ -108,13 +119,18 @@ const EXTRA = {
  * @param rutas  subconjunto de RUTAS. Por defecto van las 13; el tablero del celular
  *               pasa 5, que es lo que entra en una fila sin scrollear.
  */
-export function navbar (base = '/panel-vertical-2', rutas = RUTAS) {
+export function navbar (base = '/panel-vertical-2', rutas = RUTAS, medidas = {}) {
+  // MEDIDAS AJUSTABLES, y no es un adorno: en el panel de pared hay 1080 px y entran diez
+  // botones de 64. En un iPhone hay ~390, y seis de 64 (404 px con los espacios) **envuelven
+  // a dos filas**. El liquid-lens bloquea el scroll tactil, asi que si no entran, no se llega.
+  // El celular pasa 56 y entra: 6 x 56 + 5 x 3 = 351.
+  const { icono = 26, boton = 64, hueco = 4 } = medidas
   return {
     type: 'custom:liquid-lens-navbar-card',
     hide_labels: false,
-    icon_size: 26,
-    button_size: 64,
-    item_gap: 4,
+    icon_size: icono,
+    button_size: boton,
+    item_gap: hueco,
     routes: rutas.map(([icon, label, path, color, imagen]) => {
       const { dinamico, ...resto } = EXTRA[path] || {}
       return {
@@ -141,7 +157,7 @@ export function navbar (base = '/panel-vertical-2', rutas = RUTAS) {
       style: `
         ${rutas.map(([, , , , img], i) => img ? `
         .lln-btn[data-index="${i}"] ha-icon {
-          background: url('/local/iconos/color/${img}') center / 26px 26px no-repeat;
+          background: url('/local/iconos/color/${img}') center / ${icono}px ${icono}px no-repeat;
           color: transparent !important;
         }` : '').join('')}
         .lln-scroll {

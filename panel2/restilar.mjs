@@ -47,11 +47,34 @@ export function colorDeEscena (carta) {
  * Escena: mismo entity y misma llamada a script, look nuevo.
  * Circulo lleno 44px del color + nombre 19px + borde izquierdo 6px (DISENO).
  */
+// LAS ESCENAS QUE APAGAN NO SIRVEN COMO ESCENA, y hay que interceptarlas.
+//
+// Una escena **no le manda comando a una entidad que ya esta en el estado destino**: la
+// saltea. Con luces WiFi, cuyo estado en HA se desincroniza del aparato, eso significa que la
+// escena de apagar deja prendido justo lo que HA cree apagado — y no avisa.
+//
+// Medido el 30/08/2026: `scene.escritorio_apagado` apago `light.tira_monitor` (que HA tenia
+// como prendida) y **no toco** `light.h61c3` (que HA ya tenia como apagada, mientras la tira
+// estaba fisicamente encendida). Un `light.turn_off` directo la apago al instante.
+//
+// Estas escenas vienen del panel viejo, asi que no se pueden arreglar en el origen. Se les
+// cambia la accion al vuelo: mismo boton, misma pinta, pero manda `light.turn_off`, que
+// siempre se envia.
+const APAGADOS = {
+  'scene.escritorio_apagado': ['light.tira_monitor', 'light.h61c3'],
+}
+
+const accionDeEscena = (carta) => {
+  const luces = APAGADOS[carta.entity]
+  if (!luces) return carta.tap_action
+  return { action: 'call-service', service: 'light.turn_off', service_data: { entity_id: luces } }
+}
+
 export function restilarEscena (carta, alto = '92px') {
   const color = colorDeEscena(carta)
   return tarjeta({
     entidad: carta.entity,
-    tap: carta.tap_action,
+    tap: accionDeEscena(carta),
     hold: carta.hold_action || { action: 'more-info' },
     radio: R.media,
     relleno: '16px 18px',

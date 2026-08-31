@@ -1,0 +1,254 @@
+# Salud: los sensores que faltaban para que NADA se pierda.
+#
+# GENERADO por scripts/ha/salud.mjs desde docs/plantillas/salud.yaml. No editar a mano.
+#
+# POR QUE EXISTE ESTE ARCHIVO
+#
+# En Home Assistant hay dos memorias distintas y conviene no confundirlas:
+#
+#     el grabador      guarda TODO, y purga a los 30 dias (recorder.yaml)
+#     las estadisticas guardan promedio/minimo/maximo por hora y por dia, PARA SIEMPRE
+#
+# Las estadisticas solo existen para entidades con `state_class`. Auditado el 31/08/2026:
+#
+#     36 sensores de salud YA tenian state_class  -> a salvo
+#      9 no lo tenian                             -> se perdian a los 30 dias
+#     26 atributos de la salida de Garmin         -> NUNCA generaban estadistica
+#
+# Los atributos eran lo grave: ahi viven las zonas de pulso, la carga de entrenamiento, el
+# efecto aerobico y las velocidades. Un atributo no es una entidad, y HA no le arma
+# estadisticas a un atributo por mas `state_class` que tenga el sensor que lo lleva.
+#
+# QUE HACE ESTE PAQUETE: saca cada numero a su propia entidad con `state_class: measurement`,
+# que es lo unico que lo vuelve permanente.
+#
+# UNA ACLARACION HONESTA SOBRE LAS SALIDAS EN BICI. `last_activity` guarda **la ultima**, no
+# un historial. Estos sensores mantienen los valores de esa salida hasta que llegue otra, asi
+# que el grafico es una escalera: cada escalon es una salida. Se puede leer salida por salida
+# —y por eso ninguna se pierde— pero NO es una serie temporal continua. `sensor.salida_dias_desde`
+# esta justamente para que se vea cuando el dato quedo viejo.
+#
+# LO QUE FALTA PARA VOLUMEN ACUMULADO (km del mes, horas de la semana) es un contador que
+# sume cada salida nueva. No se hizo todavia: la Edge 1050 no sincroniza desde el 20/06/2026 y
+# hay UNA sola salida, asi que seria construir sobre una suposicion. Cuando haya varias, se
+# agrega.
+
+template:
+  - sensor:
+      - name: "Sueño"
+        unique_id: salud_sueno_horas
+        state: >-
+          {{ states('input_number.sueno_apple_salud') | float(0) | round(2) }}
+        unit_of_measurement: "h"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:sleep
+        availability: >-
+          {{ states('input_number.sueno_apple_salud') not in ['unknown','unavailable','none',''] }}
+      - name: "Salida · distancia"
+        unique_id: salida_distancia
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','distance') | float(0) / 1000) | round(2) }}
+        unit_of_measurement: "km"
+        device_class: distance
+        state_class: measurement
+        icon: mdi:bike
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · duración"
+        unique_id: salida_duracion
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','duration') | float(0) / 60) | round(1) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:timer-outline
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · velocidad media"
+        unique_id: salida_vel_media
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','averageSpeed') | float(0) * 3.6) | round(1) }}
+        unit_of_measurement: "km/h"
+        device_class: speed
+        state_class: measurement
+        icon: mdi:speedometer
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · velocidad máxima"
+        unique_id: salida_vel_max
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','maxSpeed') | float(0) * 3.6) | round(1) }}
+        unit_of_measurement: "km/h"
+        device_class: speed
+        state_class: measurement
+        icon: mdi:speedometer-medium
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · pulso medio"
+        unique_id: salida_fc_media
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','averageHR') | int(0) }}
+        unit_of_measurement: "bpm"
+        state_class: measurement
+        icon: mdi:heart-pulse
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · pulso máximo"
+        unique_id: salida_fc_max
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','maxHR') | int(0) }}
+        unit_of_measurement: "bpm"
+        state_class: measurement
+        icon: mdi:heart-flash
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · calorías"
+        unique_id: salida_calorias
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','calories') | int(0) }}
+        unit_of_measurement: "kcal"
+        state_class: measurement
+        icon: mdi:fire
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · desnivel"
+        unique_id: salida_desnivel
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','elevationGain') | int(0) }}
+        unit_of_measurement: "m"
+        device_class: distance
+        state_class: measurement
+        icon: mdi:elevation-rise
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · carga"
+        unique_id: salida_carga
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','activityTrainingLoad') | float(0) | round(0) }}
+        state_class: measurement
+        icon: mdi:weight-lifter
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · efecto aeróbico"
+        unique_id: salida_ef_aerobico
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','aerobicTrainingEffect') | float(0) | round(1) }}
+        state_class: measurement
+        icon: mdi:lungs
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · efecto anaeróbico"
+        unique_id: salida_ef_anaerob
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','anaerobicTrainingEffect') | float(0) | round(1) }}
+        state_class: measurement
+        icon: mdi:flash
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · minutos intensos"
+        unique_id: salida_min_intensos
+        state: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','vigorousIntensityMinutes') | int(0) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:run-fast
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · zona 1"
+        unique_id: salida_zona_1
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','hrTimeInZone_1') | float(0) / 60) | round(0) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:chart-timeline
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · zona 2"
+        unique_id: salida_zona_2
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','hrTimeInZone_2') | float(0) / 60) | round(0) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:chart-timeline
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · zona 3"
+        unique_id: salida_zona_3
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','hrTimeInZone_3') | float(0) / 60) | round(0) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:chart-timeline
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · zona 4"
+        unique_id: salida_zona_4
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','hrTimeInZone_4') | float(0) / 60) | round(0) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:chart-timeline
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · zona 5"
+        unique_id: salida_zona_5
+        state: >-
+          {{ (state_attr('sensor.garmin_connect_last_activity','hrTimeInZone_5') | float(0) / 60) | round(0) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:chart-timeline
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity', 'activityId') is not none }}
+      - name: "Salida · días desde"
+        unique_id: salida_dias_desde
+        state: >-
+          {{ ((now() - (state_attr('sensor.garmin_connect_last_activity','startTime') | as_datetime)).total_seconds() / 86400) | round(1) }}
+        unit_of_measurement: "d"
+        state_class: measurement
+        icon: mdi:calendar-clock
+        availability: >-
+          {{ state_attr('sensor.garmin_connect_last_activity','startTime') is not none }}
+      - name: "Caminata · distancia"
+        unique_id: camin_distancia
+        state: >-
+          {{ (states('sensor.withings_distancia_recorrida_en_el_ultimo_entrenamiento') | float(0) / 1000) | round(2) }}
+        unit_of_measurement: "km"
+        device_class: distance
+        state_class: measurement
+        icon: mdi:walk
+        availability: >-
+          {{ states('sensor.withings_distancia_recorrida_en_el_ultimo_entrenamiento') not in ['unknown','unavailable','none',''] }}
+      - name: "Caminata · duración"
+        unique_id: camin_duracion
+        state: >-
+          {{ states('sensor.withings_duracion_del_ultimo_entrenamiento') | float(0) | round(1) }}
+        unit_of_measurement: "min"
+        device_class: duration
+        state_class: measurement
+        icon: mdi:timer-outline
+        availability: >-
+          {{ states('sensor.withings_duracion_del_ultimo_entrenamiento') not in ['unknown','unavailable','none',''] }}
+      - name: "Caminata · calorías"
+        unique_id: camin_calorias
+        state: >-
+          {{ states('sensor.withings_calorias_quemadas_en_el_ultimo_entrenamiento') | float(0) | round(0) }}
+        unit_of_measurement: "kcal"
+        state_class: measurement
+        icon: mdi:fire
+        availability: >-
+          {{ states('sensor.withings_calorias_quemadas_en_el_ultimo_entrenamiento') not in ['unknown','unavailable','none',''] }}
+      - name: "Caminata · intensidad"
+        unique_id: camin_intensidad
+        state: >-
+          {{ states('sensor.withings_intensidad_del_ultimo_entrenamiento') | float(0) | round(0) }}
+        state_class: measurement
+        icon: mdi:gauge
+        availability: >-
+          {{ states('sensor.withings_intensidad_del_ultimo_entrenamiento') not in ['unknown','unavailable','none',''] }}
