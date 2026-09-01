@@ -49,9 +49,11 @@ services:
     env_file:
       - ./mqtt.env
 
-    logging:
-      driver: json-file
-      options:
-        # Un envío por minuto, para siempre, termina llenando el volumen del NAS.
-        max-size: "10m"
-        max-file: "3"
+    # NO SE ANULA EL REGISTRO, y la primera version de este archivo si lo hacia.
+    #
+    # Poner `logging: driver: json-file` parecia prolijo —evita que un envio por minuto llene
+    # el volumen— pero el 01/09/2026 tuvo un costo que no valia la pena: con el driver
+    # cambiado, **la pestaña Registro de Container Manager aparece vacia**. El contenedor se
+    # moria en bucle y la unica pista posible estaba justamente ahi.
+    #
+    # Un registro que no se puede leer no sirve de nada. La rotacion la maneja el DSM.

@@ -40,7 +40,7 @@ const PROPIOS = [
 // El .dockerignore va SI O SI: sin él, el contexto de construcción se lleva datos/ y mqtt.env
 // —o sea las credenciales de todos los destinos y la clave del broker— al motor de Docker, y
 // en una imagen que después se comparta quedan adentro.
-const SUELTOS = ['Dockerfile', '.dockerignore', 'docker-compose.yml', 'README.md']
+const SUELTOS = ['Dockerfile', '.dockerignore', 'docker-compose.yml', 'README.md', 'entrada.sh']
 const COMPARTIDOS = [[path.join(AQUI, '..', 'garnet', '_mqtt.mjs'), '_mqtt.mjs']]
 
 /**

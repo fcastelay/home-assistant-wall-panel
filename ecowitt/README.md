@@ -3,7 +3,7 @@
 Recibe los datos de una estación Ecowitt, **los archiva crudos** y los reparte a todos los
 servicios que haga falta, con panel web y auto-descubrimiento de Home Assistant.
 
-Node sin una sola dependencia. La imagen es Node más siete archivos.
+Node sin una sola dependencia. La imagen es Node más nueve archivos y un guion de arranque.
 
 ---
 
@@ -269,6 +269,32 @@ lo dice y no manda nada. Un dato falso publicado en Windy o en Home Assistant qu
 | `probar.mjs` | la prueba de punta a punta contra servicios falsos |
 | `destinos.mjs` | administración desde la terminal |
 | `desplegar-nas.mjs` | arma la carpeta y la copia al NAS |
+| `entrada.sh` | acomoda el dueño del volumen y baja de privilegios |
+| `diagnosticar.mjs` | por qué no levanta: le pregunta al DSM |
+
+---
+
+## Si no levanta
+
+```
+node scripts/ecowitt/diagnosticar.mjs
+```
+
+Le pregunta al DSM el estado del contenedor, su código de salida y su registro. Hace falta el
+cliente de Synology (`scripts/synology/_api.mjs`) con sus credenciales.
+
+**Los dos casos que ya pasaron:**
+
+| Síntoma | Causa |
+|---|---|
+| Muere en menos de 1 s, `ExitCode 1`, en bucle | El volumen `datos/` no es escribible por el usuario del contenedor. Lo resuelve `entrada.sh`, que arranca como root, hace `chown` y baja a `node` con `su-exec` |
+| La pestaña Registro aparece vacía | El compose estaba anulando el driver de registro. Sin eso, el DSM no lo indexa. Ya no lo anula |
+
+El puente arranca **como root un instante** —lo justo para acomodar el dueño del volumen, que
+lo crea el despliegue con el usuario del NAS y nunca coincide con el uid de la imagen— y
+enseguida baja a un usuario sin privilegios. Fijar `user:` en el compose también funcionaría,
+pero con el uid de *tu* instalación: cualquiera que copiara esto vería el bucle sin ninguna
+pista.
 
 ---
 

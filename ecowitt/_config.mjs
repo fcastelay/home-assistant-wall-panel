@@ -73,7 +73,28 @@ export function cargar () {
     }
   }
   CACHE = completar(migrarViejo())
-  escribir(CACHE)
+  try {
+    escribir(CACHE)
+  } catch (e) {
+    // NO SE DEJA SALIR EL ERROR CRUDO. El 01/09/2026 esto fue un EACCES sin atrapar: el
+    // contenedor moría en 0,6 segundos, en bucle, y como además el registro estaba anulado en
+    // el compose, la pestaña Registro del Container Manager aparecía vacía. Dos horas de
+    // adivinar algo que el propio programa sabía.
+    //
+    // Se sigue muriendo —un puente que no puede escribir tampoco puede archivar, y archivar es
+    // la mitad de su valor— pero ahora dice qué pasa y qué hacer.
+    console.error('')
+    console.error('=== NO SE PUEDE ESCRIBIR EN EL VOLUMEN DE DATOS')
+    console.error('    ' + RUTA)
+    console.error('    ' + e.code + ': ' + e.message)
+    console.error('')
+    console.error('    Este proceso corre como uid ' + (process.getuid ? process.getuid() : '?') +
+      ' y la carpeta no le pertenece.')
+    console.error('    En Docker lo resuelve entrada.sh, que acomoda el dueño antes de arrancar.')
+    console.error('    Si estás viendo esto DENTRO del contenedor, el volumen es de sólo lectura.')
+    console.error('')
+    process.exit(1)
+  }
   return CACHE
 }
 
