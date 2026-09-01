@@ -794,9 +794,12 @@ function pintarEstaciones (e) {
       '</td></tr>';
   }
   document.getElementById('tabla-estaciones').innerHTML = t ||
-    '<tr><td colspan="6"><div class="vacio">Todavía no llegó ninguna. En el gateway: Weather ' +
-    'Services, Customized, protocolo Ecowitt, este servidor, puerto ' + location.port +
-    ', ruta /data/report, intervalo 60 s.</div></td></tr>';
+    '<tr><td colspan="6"><div class="vacio">Todavía no llegó ninguna. ' +
+    'En tu gateway, buscá donde dice servidor personalizado o custom server, y apuntalo a ' +
+    '<b>' + location.hostname + ':' + location.port + '</b>, ruta <b>/data/report</b>, cada 60 s. ' +
+    'Sirve el protocolo <b>Ecowitt</b> y también el de <b>Weather Underground</b>, que es el que ' +
+    'soportan casi todas las demás marcas. La estación aparece sola en el próximo envío.' +
+    '</div></td></tr>';
 }
 
 // ---------------------------------------------------------------- la traza

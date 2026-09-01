@@ -1,4 +1,5 @@
-# Weather Station Bridge: recibe una o varias estaciones y las reparte a los servicios que quieras.
+# Weather Station Bridge: recibe una o varias estaciones meteorologicas —Ecowitt, Wunderground
+# o JSON— y las reparte a los servicios que quieras.
 #
 #     cp .env.ejemplo .env      y cambiá lo que necesites
 #     docker compose up -d

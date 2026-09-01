@@ -1,7 +1,11 @@
 # Weather Station Bridge
 
-Un nodo que recibe **una o varias** estaciones Ecowitt, **archiva todo crudo en disco** y lo
-reparte a los servicios que quieras — cada estación a los suyos.
+Un nodo que recibe **una o varias** estaciones meteorológicas, **archiva todo crudo en disco**
+y lo reparte a los servicios que quieras — cada estación a los suyos.
+
+Entiende tres protocolos de entrada, así que le habla casi cualquier estación doméstica: las
+Ecowitt y compatibles, las que usan el formato de Weather Underground —que son casi todas las
+demás— y cualquier cosa que sepa mandar un JSON.
 
 Con panel web, usuarios, y auto-descubrimiento de Home Assistant.
 
@@ -11,13 +15,16 @@ Node sin una sola dependencia. La imagen es Node más diez archivos.
 
 ## Por qué existe
 
-Una pasarela Ecowitt sube a cuatro nubes que ya trae de fábrica —ecowitt.net, Wunderground,
-Weathercloud y WOW— **y a un único servidor personalizado**. Uno solo.
+Casi todas las estaciones domésticas suben a las nubes que trae su marca de fábrica **y a un
+único servidor personalizado**. Uno solo.
 
-Si ese lugar se usa para Home Assistant, no queda ninguno para Windy, para Windguru, ni para
-una base propia. El puente se queda con ese lugar y lo reparte.
+Una pasarela Ecowitt, por ejemplo, sube a ecowitt.net, Wunderground, Weathercloud y WOW — y le
+queda **un** lugar libre. Si ese lugar se usa para Home Assistant, no queda ninguno para Windy,
+para Windguru, ni para una base propia.
 
-> **Lo que NO conviene mandar por acá:** las cuatro nubes que el gateway ya soporta nativo.
+El puente se queda con ese único lugar y lo reparte.
+
+> **Lo que NO conviene mandar por acá:** las nubes que tu gateway ya soporta de fábrica.
 > Pasarlas por el puente agrega un punto de falla sin ganar nada. Las recetas de Wunderground y
 > WOW están para el caso de una segunda cuenta o un ID distinto, y lo dicen en sus notas.
 

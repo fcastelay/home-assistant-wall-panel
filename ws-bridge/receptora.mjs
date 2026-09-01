@@ -1,4 +1,5 @@
-// Weather Station Bridge: recibe los datos de una o varias estaciones, los archiva y los reparte.
+// Weather Station Bridge: recibe una o varias estaciones meteorologicas, las archiva y las
+// reparte a los servicios que hagan falta.
 //
 //   node receptora.mjs                 escucha en el puerto 8088
 //   node receptora.mjs --puerto N
@@ -11,9 +12,13 @@
 //
 // POR QUE EXISTE, y no es una capa de más
 //
-// Una pasarela Ecowitt sube a cuatro nubes de fábrica **y a UN solo servidor personalizado**.
-// Uno. Si ese lugar va a Home Assistant, no queda ninguno para nada más — ni Windy, ni
-// Windguru, ni una base propia, ni lo que aparezca mañana.
+// Casi todas las estaciones domesticas suben a las nubes de su marca **y a UN solo servidor
+// personalizado**. Uno. Si ese lugar va a Home Assistant, no queda ninguno para nada mas — ni
+// Windy, ni Windguru, ni una base propia, ni lo que aparezca mañana.
+//
+// QUE ESTACIONES ENTRAN: las que hablan Ecowitt, las que hablan el formato de Weather
+// Underground —que son casi todas las demas marcas— y cualquier cosa que sepa mandar un JSON.
+// Ver `_protocolos.mjs`.
 //
 // Este puente se queda con ese único lugar y lo reparte a todos los destinos que haga falta.
 //
@@ -33,11 +38,10 @@
 // las estadísticas existan. Es la copia que sobrevive a todo lo demás, y es la lección de la
 // WS2900: se cayó el 15/08 y sus 33 sensores quedaron en unavailable sin dejar rastro.
 //
-// EL PROTOCOLO, en un párrafo: el gateway hace un POST con application/x-www-form-urlencoded a
-// la ruta que uno le configure. Los campos son los de Ecowitt: PASSKEY, stationtype, dateutc,
-// tempinf, humidityin, tempf, windspeedmph, rainratein y compañía. No hay autenticación: el
-// PASSKEY identifica la estación pero viaja en claro, así que esto **sólo se expone a la red
-// local**, nunca a internet.
+// LOS PROTOCOLOS, en un parrafo: el gateway manda los datos a la ruta que uno le configure, en
+// el cuerpo de un POST (Ecowitt) o en la URL de un GET (Wunderground). Ninguno de los dos tiene
+// autenticacion —el PASSKEY identifica la estacion pero viaja en claro— asi que esto **solo se
+// expone a la red local**, nunca a internet. Ver `_protocolos.mjs`.
 
 import http from 'node:http'
 import fs from 'node:fs'
