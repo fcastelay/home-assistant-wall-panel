@@ -40,7 +40,7 @@ directo si pusiste `ADMIN_USUARIO` y `ADMIN_CLAVE` en el `.env`.
 
 ```bash
 node receptora.mjs --puerto 8088 --sin-mqtt
-node probar.mjs                 # la prueba de punta a punta, 60 comprobaciones
+node probar.mjs                 # la prueba de punta a punta, 70 comprobaciones
 ```
 
 `--sin-mqtt` no es un detalle: sin esa bandera, una prueba se conecta a tu broker de verdad y
@@ -59,7 +59,16 @@ tiene las 20 variables explicadas una por una; lo esencial:
 | `MQTT_*` | Home Assistant. Vacío = el puente funciona igual, sin publicar |
 | `UID_DATOS` / `GID_DATOS` | Si tu sistema no deja hacer `chown` en el volumen |
 | `TZ` | La hora del registro |
+| `RAIZ_MQTT` · `PREFIJO_HA` · `NOMBRE_NODO` | Cómo aparece en Home Assistant |
 | `SECO=1` | Recibe y archiva, no manda a ningún lado. Para el primer arranque |
+
+**La regla:** el `.env` decide cómo **nace** la instalación; el panel decide cómo sigue. Las
+variables se aplican la primera vez, cuando todavía no hay `config.json`. Después manda lo que
+esté cargado en el panel, y un reinicio no te revierte un cambio.
+
+Con dos excepciones a propósito: las credenciales del broker se leen en vivo cuando los campos
+del panel están vacíos —así se rota la clave del MQTT sin entrar al panel— y `ADMIN_RESET=1`
+vuelve a aplicar el usuario y la contraseña aunque ya existan.
 
 ---
 

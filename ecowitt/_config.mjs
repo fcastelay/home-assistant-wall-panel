@@ -93,14 +93,31 @@ export const estacionNueva = (id, passkey, campos = {}) => ({
 let RUTA = null
 let CACHE = null
 let HEREDADOS = []
+let SEMILLA = {}
 
 /**
  * @param carpetaDatos  el volumen persistente; ahi vive `config.json`
  * @param heredar       rutas de `destinos.json` de la version anterior, para migrar
+ * @param semilla       valores del entorno, que se usan SOLO al crear la configuracion
+ *
+ * LA SEMILLA SOLO SIEMBRA UNA VEZ, y esa es la regla que hace que el `.env` sirva sin volverse
+ * una trampa.
+ *
+ * Si el entorno pisara la configuracion en cada arranque, cambiar algo desde el panel duraria
+ * hasta el proximo reinicio del contenedor y despues volveria solo, sin que nadie entienda por
+ * que. Y si el entorno no se usara nunca, las variables del instalador serian decoracion: el
+ * 01/09/2026 se midio que RAIZ_MQTT, PREFIJO_HA y NOMBRE_NODO estaban declaradas en el
+ * .env.ejemplo, en el compose, y **no hacian absolutamente nada**, porque los valores por
+ * defecto se rellenaban antes de mirarlas.
+ *
+ * La regla queda: **el .env decide como nace la instalacion; el panel decide como sigue.**
+ * La excepcion son las credenciales del broker, que se resuelven en vivo — ver receptora.mjs:
+ * asi se puede rotar la clave del MQTT sin entrar al panel.
  */
-export function iniciar (carpetaDatos, heredar = []) {
+export function iniciar (carpetaDatos, heredar = [], semilla = {}) {
   RUTA = path.join(carpetaDatos, 'config.json')
   HEREDADOS = heredar
+  SEMILLA = semilla || {}
   fs.mkdirSync(carpetaDatos, { recursive: true })
   return RUTA
 }
@@ -127,7 +144,13 @@ export function cargar () {
       console.error('config.json ilegible (' + e.message + '). Apartado en ' + path.basename(roto))
     }
   }
-  CACHE = completar(migrarViejo())
+  // Recien creada: se siembra con lo que dijo el entorno. De aca en mas manda el panel.
+  const base = migrarViejo()
+  CACHE = completar({
+    ...base,
+    nodo: { ...(base.nodo || {}), ...(SEMILLA.nodo || {}) },
+    mqtt: { ...(base.mqtt || {}), ...(SEMILLA.mqtt || {}) },
+  })
   try {
     escribir(CACHE)
   } catch (e) {

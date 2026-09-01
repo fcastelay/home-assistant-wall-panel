@@ -72,7 +72,22 @@ const SECO = process.argv.includes('--seco') || process.env.SECO === '1'
 const SIN_MQTT = process.argv.includes('--sin-mqtt') || process.env.SIN_MQTT === '1'
 const DATOS = process.env.ARCHIVO || process.env.RUTA_DATOS || path.join(AQUI, 'datos')
 
-cfg.iniciar(DATOS, [path.join(AQUI, 'destinos.json')])
+// LA SEMILLA: lo que el `.env` decide sobre cómo NACE esta instalación. Sólo se aplica cuando
+// no hay config.json todavía; de ahí en más manda el panel. Ver `iniciar` en _config.mjs.
+//
+// Los campos vacíos se sacan a propósito: una variable sin definir no puede pisar un valor por
+// defecto con una cadena vacía.
+const sinVacios = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== ''))
+cfg.iniciar(DATOS, [path.join(AQUI, 'destinos.json')], {
+  nodo: sinVacios({ nombre: process.env.NOMBRE_NODO, raiz: process.env.RAIZ_MQTT }),
+  mqtt: sinVacios({
+    host: process.env.MQTT_HOST,
+    puerto: process.env.MQTT_PUERTO ? Number(process.env.MQTT_PUERTO) : undefined,
+    usuario: process.env.MQTT_USUARIO,
+    clave: process.env.MQTT_CLAVE,
+    prefijo: process.env.PREFIJO_HA,
+  }),
+})
 // La clave con la que se firman las sesiones. Se genera sola la primera vez y vive en el
 // volumen: si estuviera en memoria, cada actualización del contenedor echaría a todo el mundo.
 usuarios.iniciar(DATOS)
@@ -112,16 +127,30 @@ if (admUsuario && admClave) {
   }
 }
 
-// El entorno pisa la configuración sólo cuando la configuración no dice nada. Al revés sería
-// peor: alguien cambia algo en el panel, reinicia el contenedor, y su cambio desaparece.
-if (process.env.RAIZ_MQTT && !CONFIG.nodo.raiz) CONFIG.nodo.raiz = process.env.RAIZ_MQTT
-if (process.env.NOMBRE_NODO) CONFIG.nodo.nombre = CONFIG.nodo.nombre || process.env.NOMBRE_NODO
-
 const opcionesMqtt = () => ({
   raiz: CONFIG.nodo.raiz || 'estacion',
-  prefijo: CONFIG.mqtt.prefijo || process.env.PREFIJO_HA || 'homeassistant',
+  prefijo: CONFIG.mqtt.prefijo || 'homeassistant',
   nombre: CONFIG.nodo.nombre,
 })
+
+/**
+ * Con qué credenciales se habla con el broker.
+ *
+ * SE RESUELVE EN VIVO, en cada intento de conexión, y es la única excepción a la regla de la
+ * semilla: lo que esté cargado en el panel gana, y si el panel está vacío se usa el entorno.
+ * Así se puede rotar la clave del broker cambiando el `.env` y reiniciando, sin entrar al panel.
+ *
+ * DEVUELVE null SI NO HAY NADA CONFIGURADO, y eso no es un error: un puente sin Home Assistant
+ * recibe, archiva y reparte igual. Lo único que se pierde es la vigilancia desde HA.
+ */
+const credencialesMqtt = () => {
+  const m = CONFIG.mqtt || {}
+  const host = m.host || process.env.MQTT_HOST || ''
+  const usuario = m.usuario || process.env.MQTT_USUARIO || ''
+  const clave = m.clave || process.env.MQTT_CLAVE || ''
+  if (!host || !usuario || !clave) return null
+  return { host, puerto: Number(m.puerto || process.env.MQTT_PUERTO || 1883), usuario, clave }
+}
 
 /**
  * Las estaciones a las que le toca un destino. Un comodín se expande a todas las que existan.
@@ -223,12 +252,16 @@ function conectarMqtt () {
     setTimeout(conectarMqtt, esperaMqtt)
     esperaMqtt = Math.min(esperaMqtt * 2, 60000)
   }
-  const m = CONFIG.mqtt || {}
-  // Lo que se cargó en el panel manda sobre las variables de entorno. Si el panel está vacío se
-  // pasa undefined y el cliente cae en su propia búsqueda: primero el entorno del contenedor.
-  const propias = (m.host && m.usuario && m.clave)
-    ? { host: m.host, puerto: Number(m.puerto) || 1883, usuario: m.usuario, clave: m.clave }
-    : undefined
+  // NO SE DEJA QUE EL CLIENTE BUSQUE POR SU CUENTA. `credenciales()` de _mqtt.mjs tiene la IP y
+  // las rutas de la casa donde se escribió: sirve para la alarma, no para alguien que instale
+  // esto en su casa. Acá las credenciales se arman explícitas o no se conecta.
+  const propias = credencialesMqtt()
+  if (!propias) {
+    mqttMotivo = 'sin configurar'
+    anotar('info', 'sin MQTT: no hay broker configurado. El puente recibe, archiva y reparte ' +
+      'igual; lo único que falta es la vigilancia desde Home Assistant.')
+    return
+  }
 
   conectar((e) => reintentar(e.message), { id: 'ecowitt-puente', will, credenciales: propias })
     .then(c => {

@@ -345,6 +345,80 @@ const main = async () => {
     try { fs.rmSync(carpeta2, { recursive: true, force: true }) } catch {}
   }
 
+
+  // ============================================================ las variables del instalador
+  //
+  // ESTO SE PRUEBA PORQUE YA FALLO. El 01/09/2026 RAIZ_MQTT, PREFIJO_HA y NOMBRE_NODO estaban
+  // declaradas en el .env.ejemplo y en el compose, y no hacian nada: los valores por defecto se
+  // rellenaban antes de mirarlas. Una variable que figura y no funciona es peor que una que no
+  // esta, porque el que instala cree que la configuro.
+  titulo('las variables del instalador')
+  const carpeta3 = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-var-'))
+  const entorno = {
+    ...process.env, ARCHIVO: carpeta3,
+    RAIZ_MQTT: 'miclima', PREFIJO_HA: 'micasa', NOMBRE_NODO: 'Puente de la quinta',
+    MQTT_HOST: 'TU_IP_WAN', MQTT_PUERTO: '8883', MQTT_USUARIO: 'juan', MQTT_CLAVE: 'secreta123',
+    ADMIN_USUARIO: 'duenio', ADMIN_CLAVE: 'granizo2026',
+  }
+  const arrancar3 = (env) => spawn(process.execPath,
+    [path.join(AQUI, 'receptora.mjs'), '--puerto', '18092', '--sin-mqtt'],
+    { env, stdio: ['ignore', 'pipe', 'pipe'] })
+
+  let h3 = arrancar3(entorno)
+  try {
+    const s3 = []
+    h3.stdout.on('data', d => s3.push(String(d)))
+    h3.stderr.on('data', d => s3.push(String(d)))
+    if (!await esperarPuerto(18092, s3)) throw new Error('no arranco')
+    let c3 = JSON.parse(fs.readFileSync(path.join(carpeta3, 'config.json'), 'utf8'))
+    revisar(c3.nodo.raiz === 'miclima', 'RAIZ_MQTT siembra la raiz de los temas', c3.nodo.raiz)
+    revisar(c3.nodo.nombre === 'Puente de la quinta', 'NOMBRE_NODO siembra el nombre', c3.nodo.nombre)
+    revisar(c3.mqtt.prefijo === 'micasa', 'PREFIJO_HA siembra el prefijo', c3.mqtt.prefijo)
+    revisar(c3.mqtt.host === 'TU_IP_WAN' && c3.mqtt.puerto === 8883 && c3.mqtt.usuario === 'juan',
+      'MQTT_HOST, MQTT_PUERTO y MQTT_USUARIO siembran el broker')
+    revisar(s3.join('').indexOf('Puente de la quinta') !== -1, 'y el puente arranca con ese nombre')
+
+    // Ahora se cambia algo desde el panel y se reinicia con OTRO entorno: lo del panel manda.
+    h3.kill('SIGTERM'); await dormir(400)
+    c3.nodo.raiz = 'cambiada_a_mano'
+    fs.writeFileSync(path.join(carpeta3, 'config.json'), JSON.stringify(c3, null, 2))
+    h3 = arrancar3({ ...entorno, RAIZ_MQTT: 'otra_del_entorno' })
+    const s4 = []
+    h3.stdout.on('data', d => s4.push(String(d)))
+    if (!await esperarPuerto(18092, s4)) throw new Error('no arranco')
+    c3 = JSON.parse(fs.readFileSync(path.join(carpeta3, 'config.json'), 'utf8'))
+    revisar(c3.nodo.raiz === 'cambiada_a_mano',
+      'y un reinicio con otro entorno NO pisa lo que ya estaba configurado', c3.nodo.raiz)
+  } finally {
+    h3.kill('SIGTERM')
+    await dormir(300)
+    try { fs.rmSync(carpeta3, { recursive: true, force: true }) } catch {}
+  }
+
+  // Sin broker configurado no es un error: el puente sirve igual.
+  titulo('sin Home Assistant')
+  const carpeta4 = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-nomqtt-'))
+  const limpio = { ...process.env, ARCHIVO: carpeta4, ADMIN_USUARIO: 'x', ADMIN_CLAVE: 'sinbroker2026' }
+  delete limpio.MQTT_HOST; delete limpio.MQTT_USUARIO; delete limpio.MQTT_CLAVE
+  const h4 = spawn(process.execPath, [path.join(AQUI, 'receptora.mjs'), '--puerto', '18093'],
+    { env: limpio, stdio: ['ignore', 'pipe', 'pipe'] })
+  try {
+    const s5 = []
+    h4.stdout.on('data', d => s5.push(String(d)))
+    h4.stderr.on('data', d => s5.push(String(d)))
+    if (!await esperarPuerto(18093, s5)) throw new Error('no arranco')
+    await dormir(500)
+    const texto = s5.join('')
+    revisar(texto.indexOf('no hay broker configurado') !== -1,
+      'lo dice una vez y sigue andando, en vez de reintentar para siempre')
+    revisar(texto.indexOf('192.168') === -1,
+      'y NO intenta conectarse a la IP de la casa donde se escribio esto')
+  } finally {
+    h4.kill('SIGTERM')
+    await dormir(300)
+    try { fs.rmSync(carpeta4, { recursive: true, force: true }) } catch {}
+  }
+
   console.log('\n=== ' + (fallas ? fallas + ' FALLAS' : 'todo bien'))
   if (fallas) { console.log('\n--- salida del puente:'); console.log(salida.join('')) }
   // La carpeta temporal se borra: si no, cada corrida deja una copia con credenciales de
