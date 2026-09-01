@@ -8,7 +8,22 @@
 // panel aparece en blanco. Una herramienta de diagnóstico no puede depender de lo que está
 // diagnosticando.
 //
-// El gráfico se dibuja con canvas a mano por la misma razón, y son treinta líneas.
+// Eso también decidió la tipografía: no hay Google Fonts, así que la voz del panel sale de
+// **Arial Narrow**, que está instalada en cualquier Windows y cualquier Mac, usada en
+// versalitas espaciadas como las anotaciones de una carta del tiempo. Una restricción que
+// terminó dando más carácter que una fuente traída de afuera.
+//
+// LA DECISION DE DISEÑO, en una línea: esto no es un tablero, es una **carta sinóptica**.
+//
+// El dibujo central es el modelo de estación que se usa en las cartas del tiempo desde hace
+// un siglo: un círculo, la barba de viento apuntando de dónde sopla, y los números en
+// posiciones fijas alrededor. La posición ES el dato. Se eligió porque es notación real del
+// oficio y porque se dibuja con SVG plano, sin una sola dependencia.
+//
+// Y de ahí sale la regla de color: **el color se reserva para las excepciones.** Un destino
+// que anda bien va en tinta, sin color, igual que todo lo demás. Sólo se pintan la falla
+// (rojo de frente cálido) y la espera (ámbar de sodio). Un panel donde todo lo normal está en
+// verde es un panel donde no se ve nada.
 //
 // OJO AL EDITAR: todo esto vive dentro de una plantilla de JavaScript. **No se puede escribir
 // un acento grave acá adentro**, ni un dólar seguido de llave: cierran la plantilla y el error
@@ -22,170 +37,339 @@ export const PAGINA = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Puente Ecowitt</title>
 <style>
+  /* --- Paleta: carta sinóptica sobre papel. El color sólo marca excepciones. --- */
   :root {
-    --fondo: #0f1419; --panel: #1a2027; --borde: #2a333d; --texto: #e6edf3;
-    --suave: #8b98a5; --ok: #3fb950; --mal: #f85149; --aviso: #d29922; --acento: #58a6ff;
+    --papel:      #e6eae9;
+    --papel-alto: #f3f6f5;
+    --tinta:      #16262c;
+    --tinta-media:#3d565f;
+    --tinta-suave:#6d838b;
+    --isobara:    #c2cbca;
+    --isobara-fina: #d5dcdb;
+    --frio:       #1d5f8a;
+    --calor:      #a83236;
+    --sodio:      #b3701a;
+    --sombra:     0 1px 0 rgba(22,38,44,.04);
   }
-  @media (prefers-color-scheme: light) {
+  @media (prefers-color-scheme: dark) {
     :root {
-      --fondo: #f4f6f8; --panel: #fff; --borde: #dde3ea; --texto: #1a2027;
-      --suave: #5b6b7b; --ok: #1a7f37; --mal: #cf222e; --aviso: #9a6700; --acento: #0969da;
+      --papel:      #0e181d;
+      --papel-alto: #14222a;
+      --tinta:      #d8e3e5;
+      --tinta-media:#9fb2b8;
+      --tinta-suave:#75898f;
+      --isobara:    #24383f;
+      --isobara-fina: #1b2c33;
+      --frio:       #5aa5d6;
+      --calor:      #e0666a;
+      --sodio:      #e0a44e;
+      --sombra:     none;
     }
   }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--fondo); color: var(--texto); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { padding: 14px 20px; border-bottom: 1px solid var(--borde); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-  h1 { font-size: 17px; margin: 0; font-weight: 600; }
-  h2 { font-size: 14px; margin: 0 0 12px; color: var(--suave); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
-  .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--borde); color: var(--suave); }
-  .pill.ok { color: var(--ok); border-color: var(--ok); }
-  .pill.mal { color: var(--mal); border-color: var(--mal); }
-  nav { margin-left: auto; display: flex; gap: 4px; }
-  nav button { background: none; border: 1px solid transparent; color: var(--suave); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 14px; }
-  nav button.sel { background: var(--panel); border-color: var(--borde); color: var(--texto); }
+
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--papel);
+    color: var(--tinta);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  /* Los tres roles tipográficos. */
+  .anot {
+    font-family: "Arial Narrow", "Helvetica Neue", "Liberation Sans Narrow", system-ui, sans-serif;
+    font-stretch: condensed;
+    text-transform: uppercase;
+    letter-spacing: .16em;
+    font-weight: 700;
+  }
+  .dato {
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Encabezado --------------------------------------------------------- */
+  .barra {
+    display: flex; align-items: baseline; gap: 26px; flex-wrap: wrap;
+    padding: 15px 26px 12px;
+    border-bottom: 1px solid var(--isobara);
+    background: var(--papel-alto);
+  }
+  .marca { font-size: 19px; letter-spacing: .2em; margin: 0; }
+  .marca span { color: var(--tinta-suave); }
+
+  /* La leyenda, como la de una carta: glifo + qué significa. Reemplaza a las pastillas. */
+  .leyenda { display: flex; gap: 22px; flex-wrap: wrap; font-size: 11.5px; }
+  .leyenda b { font-weight: 700; letter-spacing: .1em; }
+  .leyenda i { font-style: normal; color: var(--tinta-suave); margin-left: 7px; letter-spacing: .04em; }
+  .leyenda .mal i { color: var(--calor); }
+
+  .pestanas { margin-left: auto; display: flex; }
+  .pestanas button {
+    background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--tinta-suave); padding: 5px 15px 7px; cursor: pointer;
+    font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 700;
+    font-family: "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+  }
+  .pestanas button:hover { color: var(--tinta); }
+  .pestanas button.sel { color: var(--tinta); border-bottom-color: var(--frio); }
+
+  /* La regla de vencimiento: se llena mientras pasa el tiempo desde el último envío.
+     No es adorno — es el reloj que dice cuánto falta para dar la estación por muda. */
+  .vence { height: 2px; background: var(--isobara-fina); }
+  .vence div { height: 100%; width: 0; background: var(--frio); transition: width 1s linear, background-color .4s; }
+
+  main { padding: 22px 26px 60px; max-width: 1180px; margin: 0 auto; }
   section { display: none; }
   section.sel { display: block; }
-  .caja { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; padding: 16px; margin-bottom: 18px; }
-  .grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
-  .dato { background: var(--fondo); border: 1px solid var(--borde); border-radius: 10px; padding: 12px; }
-  .dato .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .dato .e { font-size: 12px; color: var(--suave); }
-  .dato .u { font-size: 13px; color: var(--suave); font-weight: 400; }
-  table { width: 100%; border-collapse: collapse; font-size: 14px; }
-  th { text-align: left; font-size: 12px; color: var(--suave); text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px; border-bottom: 1px solid var(--borde); font-weight: 600; }
-  td { padding: 9px 8px; border-bottom: 1px solid var(--borde); vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  .punto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; }
-  .p-ok { background: var(--ok); } .p-mal { background: var(--mal); } .p-off { background: var(--suave); } .p-esp { background: var(--aviso); }
-  button.acc { background: var(--fondo); border: 1px solid var(--borde); color: var(--texto); border-radius: 7px; padding: 4px 10px; cursor: pointer; font-size: 13px; margin-right: 4px; }
-  button.acc:hover { border-color: var(--acento); color: var(--acento); }
-  button.pri { background: var(--acento); border-color: var(--acento); color: #fff; }
-  button.peli:hover { border-color: var(--mal); color: var(--mal); }
-  label { display: block; font-size: 13px; color: var(--suave); margin: 10px 0 4px; }
-  input, select, textarea { width: 100%; background: var(--fondo); border: 1px solid var(--borde); color: var(--texto); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 14px; }
-  textarea { min-height: 60px; font-family: ui-monospace, monospace; font-size: 13px; }
-  .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .log { font-family: ui-monospace, monospace; font-size: 12.5px; max-height: 340px; overflow-y: auto; }
-  .log div { padding: 3px 0; border-bottom: 1px solid var(--borde); }
-  .log .h { color: var(--suave); margin-right: 8px; }
-  .log .error { color: var(--mal); } .log .aviso { color: var(--aviso); } .log .ok { color: var(--ok); }
-  .nota { font-size: 13px; color: var(--suave); margin: 6px 0 0; }
-  .amarillo { color: var(--aviso); }
-  canvas { width: 100%; height: 110px; display: block; }
-  .vacio { color: var(--suave); text-align: center; padding: 24px; font-size: 14px; }
-  @media (max-width: 640px) { .fila { grid-template-columns: 1fr; } main { padding: 12px; } }
+
+  /* --- Bloques ------------------------------------------------------------ */
+  .bloque {
+    border: 1px solid var(--isobara); background: var(--papel-alto);
+    box-shadow: var(--sombra); margin-bottom: 20px;
+  }
+  .ceja {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 9px 16px; border-bottom: 1px solid var(--isobara-fina);
+    font-size: 11px; color: var(--tinta-media);
+  }
+  .ceja .der { margin-left: auto; letter-spacing: .06em; color: var(--tinta-suave); font-weight: 400; }
+  .cuerpo { padding: 18px 16px; }
+
+  /* --- Observación: el plot y la rejilla de lecturas ---------------------- */
+  .observacion { display: grid; grid-template-columns: 250px 1fr; gap: 26px; align-items: start; }
+
+  .plot { text-align: center; }
+  .plot svg { width: 100%; max-width: 230px; height: auto; color: var(--tinta); }
+  .plot .anillo { fill: none; stroke: currentColor; stroke-width: 2.2; }
+  .plot .lluvia { fill: currentColor; }
+  .plot .barba { stroke: currentColor; stroke-width: 2.2; fill: currentColor; stroke-linecap: butt; }
+  .plot .cifra { font-size: 21px; fill: currentColor; }
+  .plot .rotulo { font-size: 8px; fill: var(--tinta-suave); letter-spacing: .14em; }
+  .plot.vacio svg { color: var(--isobara); }
+  .plot .barba { transition: transform .9s cubic-bezier(.4,0,.2,1); transform-origin: 0px 0px; transform-box: view-box; }
+  .pie-plot { font-size: 12.5px; color: var(--tinta-media); margin-top: 6px; letter-spacing: .02em; }
+  .pie-plot b { font-weight: 700; color: var(--tinta); }
+
+  .lecturas { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 1px; background: var(--isobara-fina); border: 1px solid var(--isobara-fina); }
+  .celda { background: var(--papel-alto); padding: 10px 12px 11px; }
+  .celda .r { font-size: 9.5px; color: var(--tinta-suave); letter-spacing: .13em; display: block; }
+  .celda .v { font-size: 19px; margin-top: 3px; display: block; }
+  .celda .u { font-size: 11px; color: var(--tinta-suave); margin-left: 2px; }
+
+  /* --- Traza --------------------------------------------------------------- */
+  .traza { position: relative; }
+  .traza canvas { width: 100%; height: 120px; display: block; }
+
+  /* --- Manifiesto de destinos --------------------------------------------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th {
+    text-align: left; padding: 0 12px 8px; border-bottom: 1px solid var(--isobara-fina);
+    font-size: 10px; color: var(--tinta-suave); letter-spacing: .14em; text-transform: uppercase;
+    font-weight: 700; font-family: "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+  }
+  td { padding: 11px 12px; border-bottom: 1px solid var(--isobara-fina); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  .num { text-align: right; }
+
+  /* El glifo lleva la mitad del mensaje: la forma distingue estado aunque no se vea el color. */
+  .glifo { display: inline-block; width: 15px; margin-right: 9px; text-align: center; font-size: 13px; }
+  .g-ok   { color: var(--tinta-media); }
+  .g-mal  { color: var(--calor); font-weight: 700; }
+  .g-esp  { color: var(--sodio); }
+  .g-off  { color: var(--isobara); }
+  .txt-mal { color: var(--calor); }
+  .txt-esp { color: var(--sodio); }
+  .sin-ver { color: var(--sodio); font-size: 11px; letter-spacing: .04em; }
+
+  /* --- Botones y campos ---------------------------------------------------- */
+  button.acc {
+    background: transparent; border: 1px solid var(--isobara); color: var(--tinta-media);
+    padding: 5px 12px; cursor: pointer; font-size: 12px; margin-right: 5px;
+    font-family: "Arial Narrow", "Helvetica Neue", system-ui, sans-serif;
+    text-transform: uppercase; letter-spacing: .1em; font-weight: 700;
+  }
+  button.acc:hover { border-color: var(--frio); color: var(--frio); }
+  button.acc:focus-visible, .pestanas button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--frio); outline-offset: 2px;
+  }
+  button.pri { background: var(--frio); border-color: var(--frio); color: #fff; }
+  button.pri:hover { color: #fff; opacity: .88; }
+  button.peli:hover { border-color: var(--calor); color: var(--calor); }
+
+  label { display: block; font-size: 10.5px; color: var(--tinta-suave); margin: 14px 0 5px; letter-spacing: .13em; text-transform: uppercase; font-weight: 700; font-family: "Arial Narrow", "Helvetica Neue", system-ui, sans-serif; }
+  label.plano { text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--tinta); font-family: inherit; font-weight: 400; display: flex; align-items: center; gap: 9px; }
+  input, select {
+    width: 100%; background: var(--papel); border: 1px solid var(--isobara); color: var(--tinta);
+    padding: 8px 10px; font: inherit; font-size: 14px;
+  }
+  input[type=checkbox] { width: auto; }
+  .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .nota { font-size: 12.5px; color: var(--tinta-suave); margin: 8px 0 0; max-width: 68ch; }
+  .nota a { color: var(--frio); }
+  .aviso { color: var(--sodio); }
+
+  /* --- Registro ------------------------------------------------------------ */
+  .registro { max-height: 320px; overflow-y: auto; font-size: 12.5px; }
+  .registro div { padding: 4px 0; border-bottom: 1px solid var(--isobara-fina); display: flex; gap: 12px; }
+  .registro div:last-child { border-bottom: 0; }
+  .registro .h { color: var(--tinta-suave); flex: none; }
+  .registro .error { color: var(--calor); }
+  .registro .aviso { color: var(--sodio); }
+  .registro .ok, .registro .info { color: var(--tinta-media); }
+
+  .vacio { color: var(--tinta-suave); padding: 26px 4px; font-size: 13.5px; max-width: 60ch; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .plot .barba, .vence div { transition: none; }
+  }
+  @media (max-width: 780px) {
+    .observacion { grid-template-columns: 1fr; }
+    .fila { grid-template-columns: 1fr; }
+    main { padding: 16px 14px 40px; }
+    .barra { padding: 12px 14px 10px; gap: 14px; }
+    .pestanas { margin-left: 0; width: 100%; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Puente Ecowitt</h1>
-  <span class="pill" id="p-estacion">estación…</span>
-  <span class="pill" id="p-mqtt">MQTT…</span>
-  <span class="pill" id="p-destinos">destinos…</span>
-  <nav>
-    <button data-v="monitor" class="sel">Monitor</button>
+
+<header class="barra">
+  <h1 class="marca anot">Puente <span>Ecowitt</span></h1>
+  <div class="leyenda anot" id="leyenda"></div>
+  <nav class="pestanas">
+    <button data-v="monitor" class="sel">Observación</button>
     <button data-v="destinos">Destinos</button>
     <button data-v="ajustes">Ajustes</button>
   </nav>
 </header>
+<div class="vence"><div id="vence"></div></div>
+
 <main>
 
 <section id="v-monitor" class="sel">
-  <div class="caja">
-    <h2>Última lectura <span id="cuando" class="nota" style="text-transform:none;letter-spacing:0"></span></h2>
-    <div class="grilla" id="datos"></div>
+  <div class="bloque">
+    <div class="ceja anot">Observación<span class="der anot" id="cuando"></span></div>
+    <div class="cuerpo">
+      <div class="observacion">
+        <div>
+          <div class="plot vacio" id="plot"></div>
+          <div class="pie-plot" id="pie-plot"></div>
+        </div>
+        <div id="lecturas"></div>
+      </div>
+    </div>
   </div>
-  <div class="caja">
-    <h2>Temperatura exterior · últimas horas</h2>
-    <canvas id="grafico"></canvas>
-    <p class="nota" id="grafico-nota"></p>
+
+  <div class="bloque">
+    <div class="ceja anot">Traza · temperatura exterior<span class="der anot" id="traza-nota"></span></div>
+    <div class="cuerpo traza"><canvas id="grafico"></canvas></div>
   </div>
-  <div class="caja">
-    <h2>Destinos</h2>
-    <table><thead><tr>
-      <th>Destino</th><th>Servicio</th><th>Último intento</th><th>Resultado</th>
-      <th>Latencia</th><th>OK / fallos</th><th></th>
-    </tr></thead><tbody id="tabla-destinos"></tbody></table>
+
+  <div class="bloque">
+    <div class="ceja anot">Destinos<span class="der anot" id="resumen-destinos"></span></div>
+    <div class="cuerpo">
+      <table><thead><tr>
+        <th>Destino</th><th>Servicio</th><th>Último intento</th><th>Resultado</th>
+        <th class="num">Latencia</th><th class="num">Enviados / fallos</th><th></th>
+      </tr></thead><tbody id="tabla-destinos"></tbody></table>
+    </div>
   </div>
-  <div class="caja">
-    <h2>Eventos</h2>
-    <div class="log" id="log"></div>
+
+  <div class="bloque">
+    <div class="ceja anot">Registro<span class="der anot">últimos eventos</span></div>
+    <div class="cuerpo"><div class="registro dato" id="log"></div></div>
   </div>
 </section>
 
 <section id="v-destinos">
-  <div class="caja">
-    <h2 id="titulo-form">Nuevo destino</h2>
-    <div class="fila">
-      <div>
-        <label>Nombre (así se va a llamar en Home Assistant)</label>
-        <input id="f-nombre" placeholder="Windy de casa">
+  <div class="bloque">
+    <div class="ceja anot" id="titulo-form">Destino nuevo</div>
+    <div class="cuerpo">
+      <div class="fila">
+        <div>
+          <label for="f-nombre">Nombre</label>
+          <input id="f-nombre" placeholder="Windy de casa">
+        </div>
+        <div>
+          <label for="f-receta">Servicio</label>
+          <select id="f-receta"></select>
+        </div>
       </div>
-      <div>
-        <label>Servicio</label>
-        <select id="f-receta"></select>
+      <p class="nota" id="f-notas"></p>
+      <div id="f-credenciales"></div>
+      <div class="fila">
+        <div>
+          <label for="f-intervalo">Esperar entre envíos (segundos · 0 manda todos)</label>
+          <input id="f-intervalo" type="number" min="0" step="10" value="0">
+        </div>
+        <div>
+          <label for="f-reintentos">Reintentos ante un fallo pasajero</label>
+          <input id="f-reintentos" type="number" min="0" max="5" value="2">
+        </div>
       </div>
-    </div>
-    <p class="nota" id="f-notas"></p>
-    <div id="f-credenciales"></div>
-    <div class="fila">
-      <div>
-        <label>Intervalo mínimo entre envíos (segundos, 0 = cada envío)</label>
-        <input id="f-intervalo" type="number" min="0" step="10" value="0">
+      <label class="plano" style="margin-top:16px">
+        <input type="checkbox" id="f-activo"> Enviar a este destino
+      </label>
+      <p class="nota">Un destino nuevo se guarda apagado. Probalo primero: el botón le manda la
+        última lectura real y te dice qué contestó. Uno que arranca prendido puede estar
+        mandando mal durante días sin que nadie lo mire.</p>
+      <div style="margin-top:18px">
+        <button class="acc pri" id="b-guardar">Guardar destino</button>
+        <button class="acc" id="b-cancelar" style="display:none">Cancelar</button>
       </div>
-      <div>
-        <label>Reintentos ante un fallo pasajero</label>
-        <input id="f-reintentos" type="number" min="0" max="5" value="2">
-      </div>
-    </div>
-    <label><input type="checkbox" id="f-activo" style="width:auto;margin-right:8px">Activo</label>
-    <p class="nota">Un destino nuevo se guarda apagado a propósito: primero se lo prueba con
-      <b>Probar</b> y recién después se lo enciende. Uno que arranca prendido puede estar
-      mandando mal durante días sin que nadie lo mire.</p>
-    <div style="margin-top:14px">
-      <button class="acc pri" id="b-guardar">Guardar destino</button>
-      <button class="acc" id="b-cancelar" style="display:none">Cancelar</button>
     </div>
   </div>
-  <div class="caja">
-    <h2>Configurados</h2>
-    <table><thead><tr><th>Destino</th><th>Servicio</th><th>Intervalo</th><th>Estado</th><th></th></tr></thead>
-    <tbody id="tabla-config"></tbody></table>
+
+  <div class="bloque">
+    <div class="ceja anot">Configurados<span class="der anot" id="cuenta-config"></span></div>
+    <div class="cuerpo">
+      <table><thead><tr>
+        <th>Destino</th><th>Servicio</th><th>Frecuencia</th><th>Estado</th><th></th>
+      </tr></thead><tbody id="tabla-config"></tbody></table>
+    </div>
   </div>
 </section>
 
 <section id="v-ajustes">
-  <div class="caja">
-    <h2>Home Assistant · MQTT</h2>
-    <div class="fila">
-      <div><label>Host del broker</label><input id="m-host" placeholder="TU_HOST_HA"></div>
-      <div><label>Puerto</label><input id="m-puerto" type="number" value="1883"></div>
+  <div class="bloque">
+    <div class="ceja anot">Home Assistant · MQTT</div>
+    <div class="cuerpo">
+      <div class="fila">
+        <div><label for="m-host">Host del broker</label><input id="m-host" placeholder="TU_IP_LAN"></div>
+        <div><label for="m-puerto">Puerto</label><input id="m-puerto" type="number" value="1883"></div>
+      </div>
+      <div class="fila">
+        <div><label for="m-usuario">Usuario</label><input id="m-usuario"></div>
+        <div><label for="m-clave">Contraseña</label><input id="m-clave" type="password" placeholder="sin cambios"></div>
+      </div>
+      <label for="m-prefijo">Prefijo de auto-descubrimiento</label><input id="m-prefijo" value="homeassistant">
+      <p class="nota">Dejalo vacío para usar las variables del contenedor
+        (MQTT_HOST, MQTT_USUARIO, MQTT_CLAVE). Lo que cargues acá tiene prioridad.
+        Los cambios de MQTT se aplican cuando reinicies el contenedor.</p>
     </div>
-    <div class="fila">
-      <div><label>Usuario</label><input id="m-usuario"></div>
-      <div><label>Contraseña</label><input id="m-clave" type="password" placeholder="(sin cambios)"></div>
-    </div>
-    <label>Prefijo de auto-descubrimiento</label><input id="m-prefijo" value="homeassistant">
-    <p class="nota">Vacío = se usan las variables de entorno del contenedor
-      (MQTT_HOST, MQTT_USUARIO, MQTT_CLAVE). Lo que se cargue acá tiene prioridad.
-      Los cambios de MQTT necesitan reiniciar el contenedor.</p>
   </div>
-  <div class="caja">
-    <h2>Estación</h2>
-    <div class="fila">
-      <div><label>Nombre del aparato en Home Assistant</label><input id="a-estacion"></div>
-      <div><label>Raíz de los temas MQTT</label><input id="a-base"></div>
+  <div class="bloque">
+    <div class="ceja anot">Estación</div>
+    <div class="cuerpo">
+      <div class="fila">
+        <div><label for="a-estacion">Nombre en Home Assistant</label><input id="a-estacion"></div>
+        <div><label for="a-base">Raíz de los temas MQTT</label><input id="a-base"></div>
+      </div>
+      <p class="nota">Cambiar la raíz crea entidades nuevas en Home Assistant y deja huérfanas
+        las viejas. Se elige una vez, al principio.</p>
+      <div style="margin-top:18px"><button class="acc pri" id="b-ajustes">Guardar ajustes</button></div>
     </div>
-    <p class="nota">Cambiar la raíz crea entidades nuevas en Home Assistant y deja huérfanas las
-      viejas. Se cambia una vez, al principio.</p>
-    <div style="margin-top:14px"><button class="acc pri" id="b-ajustes">Guardar ajustes</button></div>
   </div>
 </section>
 
 </main>
 <script>
 var CLAVE = sessionStorage.getItem('clave') || '';
+var HISTORIAL = [];
 
 function pedir (ruta, opciones) {
   opciones = opciones || {};
@@ -200,8 +384,27 @@ function pedir (ruta, opciones) {
   });
 }
 
+function esc (t) {
+  return String(t === null || t === undefined ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function hhmm (iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+function hace (iso) {
+  if (!iso) return 'nunca';
+  var s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (isNaN(s)) return '';
+  if (s < 60) return 'hace ' + s + ' s';
+  if (s < 3600) return 'hace ' + Math.round(s / 60) + ' min';
+  if (s < 86400) return 'hace ' + Math.round(s / 3600) + ' h';
+  return 'hace ' + Math.round(s / 86400) + ' d';
+}
+
 // ---------------------------------------------------------------- pestañas
-var botones = document.querySelectorAll('nav button');
+var botones = document.querySelectorAll('.pestanas button');
 for (var i = 0; i < botones.length; i++) {
   botones[i].onclick = function () {
     var v = this.dataset.v;
@@ -212,74 +415,154 @@ for (var i = 0; i < botones.length; i++) {
   };
 }
 
-// ---------------------------------------------------------------- monitor
-var UNIDADES = {
-  temp_ext: ['Exterior', '°C'], temp_int: ['Interior', '°C'], hum_ext: ['Humedad', '%'],
-  hum_int: ['Humedad int.', '%'], viento: ['Viento', 'km/h'], rafaga: ['Ráfaga', 'km/h'],
-  viento_dir: ['Dirección', '°'], presion_rel: ['Presión', 'hPa'], lluvia_dia: ['Lluvia hoy', 'mm'],
-  lluvia_tasa: ['Intensidad', 'mm/h'], uv: ['UV', ''], solar: ['Solar', 'W/m²'],
-  rocio: ['Rocío', '°C'], pm25: ['PM2.5', 'µg/m³'], co2: ['CO2', 'ppm']
-};
+// ---------------------------------------------------------------- el plot sinóptico
+//
+// Notación real: la barba sale del círculo hacia DE DONDE viene el viento. Cada barba entera
+// vale 10 nudos, la media 5, el banderín 50. Círculo doble = calma. Los números van en las
+// posiciones canónicas, con su rótulo debajo para que nadie tenga que saberse la convención.
 
-function hhmm (iso) {
-  if (!iso) return '—';
-  var d = new Date(iso);
-  return isNaN(d) ? '—' : d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-}
-function hace (iso) {
-  if (!iso) return 'nunca';
-  var s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (isNaN(s)) return '—';
-  if (s < 60) return 'hace ' + s + ' s';
-  if (s < 3600) return 'hace ' + Math.round(s / 60) + ' min';
-  if (s < 86400) return 'hace ' + Math.round(s / 3600) + ' h';
-  return 'hace ' + Math.round(s / 86400) + ' d';
-}
-function esc (t) {
-  return String(t === null || t === undefined ? '' : t)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+var RUMBOS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSO','SO','OSO','O','ONO','NO','NNO'];
+function rumbo (g) { return RUMBOS[Math.round((g % 360) / 22.5) % 16]; }
+
+function barbas (nudos) {
+  var p = [], y = -78, n = Math.round(nudos / 5) * 5;
+  while (n >= 50) { p.push('<path d="M0 ' + y + ' L20 ' + (y + 7) + ' L0 ' + (y + 14) + ' Z"/>'); n -= 50; y += 17; }
+  while (n >= 10) { p.push('<line x1="0" y1="' + y + '" x2="21" y2="' + (y + 8) + '"/>'); n -= 10; y += 9; }
+  if (n >= 5) { p.push('<line x1="0" y1="' + y + '" x2="11" y2="' + (y + 4) + '"/>'); }
+  return p.join('');
 }
 
+function cifra (x, y, valor, unidad, rotulo, ancla) {
+  if (valor === undefined || valor === null) return '';
+  return '<text class="cifra dato" x="' + x + '" y="' + y + '" text-anchor="' + ancla + '">' +
+    esc(valor) + (unidad ? '<tspan font-size="11">' + unidad + '</tspan>' : '') + '</text>' +
+    '<text class="rotulo anot" x="' + x + '" y="' + (y + 13) + '" text-anchor="' + ancla + '">' + rotulo + '</text>';
+}
+
+function dibujarPlot (d) {
+  var caja = document.getElementById('plot');
+  var pie = document.getElementById('pie-plot');
+  var hay = d && d.temp_ext !== undefined;
+  caja.classList.toggle('vacio', !hay);
+
+  var s = '<svg viewBox="-105 -105 210 210" role="img" aria-label="Modelo de estación">';
+  var lluvia = hay && d.lluvia_tasa > 0;
+  s += '<circle class="anillo' + (lluvia ? ' lluvia' : '') + '" cx="0" cy="0" r="17"/>';
+
+  if (hay && d.viento === 0) {
+    // Calma: el círculo doble es el símbolo estándar. No hay barba que dibujar.
+    s += '<circle class="anillo" cx="0" cy="0" r="26"/>';
+  } else if (hay && d.viento !== undefined) {
+    var dir = d.viento_dir === undefined ? 0 : d.viento_dir;
+    var nudos = d.viento / 1.852;
+    s += '<g class="barba" style="transform: rotate(' + dir + 'deg)">' +
+      '<line x1="0" y1="-17" x2="0" y2="-80"/>' + barbas(nudos) + '</g>';
+  }
+
+  if (hay) {
+    s += cifra(-30, -12, d.temp_ext, '°', 'Temp', 'end');
+    s += cifra(-30, 26, d.rocio, '°', 'Rocío', 'end');
+    s += cifra(30, -12, d.presion_rel, '', 'hPa', 'start');
+    s += cifra(30, 26, d.hum_ext, '%', 'Humedad', 'start');
+  }
+  s += '</svg>';
+  caja.innerHTML = s;
+
+  if (!hay) { pie.textContent = ''; return; }
+  var t = [];
+  if (d.viento !== undefined) {
+    t.push(d.viento === 0 ? '<b>Calma</b>'
+      : '<b>' + rumbo(d.viento_dir || 0) + ' ' + d.viento + '</b> km/h');
+  }
+  if (d.rafaga !== undefined) t.push('ráfaga ' + d.rafaga);
+  if (lluvia) t.push('lloviendo ' + d.lluvia_tasa + ' mm/h');
+  pie.innerHTML = t.join(' · ');
+}
+
+// ---------------------------------------------------------------- lecturas
+// Lo que NO está en el plot. Sin repetir: el plot ya dice temperatura, rocío, presión y humedad.
+var CELDAS = [
+  ['rafaga', 'Ráfaga', 'km/h'], ['rafaga_max_dia', 'Ráfaga máx.', 'km/h'],
+  ['lluvia_dia', 'Lluvia hoy', 'mm'], ['lluvia_tasa', 'Intensidad', 'mm/h'],
+  ['uv', 'Índice UV', ''], ['solar', 'Solar', 'W/m²'],
+  ['temp_int', 'Interior', '°C'], ['hum_int', 'Humedad int.', '%'],
+  ['pm25', 'PM2.5', 'µg/m³'], ['co2', 'CO2', 'ppm'],
+  ['presion_abs', 'Presión abs.', 'hPa'], ['sensacion', 'Sensación', '°C']
+];
+
+function pintarLecturas (d) {
+  var h = '';
+  for (var i = 0; i < CELDAS.length; i++) {
+    var k = CELDAS[i][0];
+    if (d[k] === undefined || d[k] === null) continue;
+    h += '<div class="celda"><span class="r anot">' + CELDAS[i][1] + '</span>' +
+      '<span class="v dato">' + esc(d[k]) +
+      (CELDAS[i][2] ? '<span class="u">' + CELDAS[i][2] + '</span>' : '') + '</span></div>';
+  }
+  document.getElementById('lecturas').innerHTML = h
+    ? '<div class="lecturas">' + h + '</div>'
+    : '<div class="vacio">La estación todavía no reportó. Apuntá el GW3000 a este servidor, ' +
+      'puerto 8088, ruta /data/report, y esto se llena solo con el primer envío.</div>';
+}
+
+// ---------------------------------------------------------------- estado
 function pintarEstado (e) {
-  var pe = document.getElementById('p-estacion');
-  pe.textContent = e.puente.recibidos ? 'estación · ' + hace(e.puente.ultimo) : 'estación · sin datos aún';
-  pe.className = 'pill ' + (e.puente.recibidos ? (e.puente.muda === 'ON' ? 'mal' : 'ok') : '');
-  var pm = document.getElementById('p-mqtt');
-  pm.textContent = 'MQTT · ' + (e.mqtt.conectado ? 'conectado' : (e.mqtt.motivo || 'desconectado'));
-  pm.className = 'pill ' + (e.mqtt.conectado ? 'ok' : 'mal');
-  var caidos = 0;
-  for (var i = 0; i < e.destinos.length; i++) if (e.destinos[i].activo && e.destinos[i].problema) caidos++;
-  var pd = document.getElementById('p-destinos');
-  pd.textContent = e.destinos.length + ' destinos' + (caidos ? ' · ' + caidos + ' con problemas' : '');
-  pd.className = 'pill ' + (caidos ? 'mal' : (e.destinos.length ? 'ok' : ''));
+  var caidos = 0, activos = 0;
+  for (var i = 0; i < e.destinos.length; i++) {
+    if (!e.destinos[i].activo) continue;
+    activos++;
+    if (e.destinos[i].problema) caidos++;
+  }
+  var muda = e.puente.muda === 'ON';
+  var glifo = function (mal, txt, val) {
+    return '<span class="' + (mal ? 'mal' : '') + '"><b>' + txt + '</b><i>' + val + '</i></span>';
+  };
+  document.getElementById('leyenda').innerHTML =
+    glifo(muda, 'Estación', e.puente.recibidos ? (muda ? 'no reporta' : hace(e.puente.ultimo)) : 'sin datos') +
+    glifo(!e.mqtt.conectado, 'MQTT', e.mqtt.conectado ? 'conectado' : (e.mqtt.motivo || 'sin conectar')) +
+    glifo(caidos > 0, 'Destinos', caidos ? caidos + ' con problemas' : activos + ' al día');
+
+  // La regla de vencimiento. El umbral es el mismo que usa el puente: tres intervalos, con
+  // piso de 10 minutos. Cuando se llena, la estación pasa a figurar muda.
+  var barra = document.getElementById('vence');
+  if (e.puente.ultimo) {
+    var pasado = (Date.now() - new Date(e.puente.ultimo).getTime()) / 1000;
+    var umbral = Math.max(3 * ((e.datos.intervalo || 60)), 600);
+    var p = Math.min(1, pasado / umbral);
+    barra.style.width = (p * 100).toFixed(1) + '%';
+    barra.style.background = p > .99 ? 'var(--calor)' : (p > .66 ? 'var(--sodio)' : 'var(--frio)');
+  } else { barra.style.width = '0'; }
 
   document.getElementById('cuando').textContent = e.puente.ultimo
     ? hhmm(e.puente.ultimo) + ' · ' + hace(e.puente.ultimo) + ' · ' + e.puente.recibidos + ' envíos'
-    : '';
+    : 'sin observación';
 
-  var h = '';
-  for (var k in UNIDADES) {
-    if (e.datos[k] === undefined || e.datos[k] === null) continue;
-    h += '<div class="dato"><div class="e">' + UNIDADES[k][0] + '</div><div class="v">' +
-      esc(e.datos[k]) + ' <span class="u">' + UNIDADES[k][1] + '</span></div></div>';
-  }
-  document.getElementById('datos').innerHTML = h ||
-    '<div class="vacio">Todavía no llegó ningún envío de la estación.</div>';
+  dibujarPlot(e.datos);
+  pintarLecturas(e.datos);
+
+  document.getElementById('resumen-destinos').textContent =
+    e.destinos.length ? e.destinos.length + ' configurados' : '';
 
   var t = '';
   for (var j = 0; j < e.destinos.length; j++) {
     var d = e.destinos[j];
-    var clase = !d.activo ? 'p-off' : (d.esperando ? 'p-esp' : (d.problema ? 'p-mal' : (d.ultimo_ok ? 'p-ok' : 'p-off')));
-    t += '<tr><td><span class="punto ' + clase + '"></span>' + esc(d.nombre) + '</td>' +
-      '<td>' + esc(d.servicio) + (d.verificado === false ? ' <span class="amarillo" title="receta sin probar contra el servicio real">sin verificar</span>' : '') + '</td>' +
-      '<td>' + hace(d.ultimo_intento) + '</td>' +
-      '<td>' + esc(d.detalle || (d.activo ? '—' : 'apagado')) + '</td>' +
-      '<td>' + (d.latencia ? d.latencia + ' ms' : '—') + '</td>' +
-      '<td>' + (d.enviados || 0) + ' / ' + (d.fallidos || 0) + '</td>' +
-      '<td><button class="acc" onclick="probar(\\'' + esc(d.nombre).replace(/'/g, '') + '\\')">Probar</button></td></tr>';
+    var g = '<span class="glifo g-off">·</span>', clase = '';
+    if (d.activo && d.problema) { g = '<span class="glifo g-mal">✕</span>'; clase = 'txt-mal'; }
+    else if (d.activo && d.esperando) { g = '<span class="glifo g-esp">◷</span>'; clase = 'txt-esp'; }
+    else if (d.activo && d.ultimo_ok) { g = '<span class="glifo g-ok">●</span>'; }
+    else if (d.activo) { g = '<span class="glifo g-ok">○</span>'; }
+    t += '<tr><td>' + g + esc(d.nombre) + '</td>' +
+      '<td>' + esc(d.servicio) +
+        (d.verificado === false ? ' <span class="sin-ver anot">sin verificar</span>' : '') + '</td>' +
+      '<td class="dato">' + (d.ultimo_intento ? hhmm(d.ultimo_intento) : '—') + '</td>' +
+      '<td class="' + clase + '">' + esc(d.detalle || (d.activo ? 'sin enviar' : 'apagado')) + '</td>' +
+      '<td class="num dato">' + (d.latencia ? d.latencia + ' ms' : '—') + '</td>' +
+      '<td class="num dato">' + (d.enviados || 0) + ' / ' + (d.fallidos || 0) + '</td>' +
+      '<td class="num"><button class="acc" onclick="probar(\\'' + esc(d.nombre).replace(/'/g, '') + '\\')">Probar</button></td></tr>';
   }
   document.getElementById('tabla-destinos').innerHTML = t ||
-    '<tr><td colspan="7" class="vacio">Ningún destino configurado. El puente archiva igual.</td></tr>';
+    '<tr><td colspan="7"><div class="vacio">Ningún destino configurado. El puente archiva igual: ' +
+    'cada envío se guarda en disco antes de repartirse.</div></td></tr>';
 
   var l = '';
   for (var m = 0; m < e.log.length; m++) {
@@ -288,36 +571,58 @@ function pintarEstado (e) {
   }
   document.getElementById('log').innerHTML = l || '<div class="vacio">Sin eventos.</div>';
 
-  dibujar(e.historial);
+  HISTORIAL = e.historial;
+  dibujar(HISTORIAL);
 }
 
+// ---------------------------------------------------------------- la traza
+// Un barógrafo: rejilla de isobaras y el trazo encima. Se lee del CSS para que siga al tema.
 function dibujar (h) {
   var c = document.getElementById('grafico');
   var ctx = c.getContext('2d');
-  var an = c.clientWidth, al = 110;
-  c.width = an * devicePixelRatio; c.height = al * devicePixelRatio;
-  ctx.scale(devicePixelRatio, devicePixelRatio);
+  var an = c.clientWidth, al = 120, r = window.devicePixelRatio || 1;
+  c.width = an * r; c.height = al * r;
+  ctx.setTransform(r, 0, 0, r, 0, 0);
   ctx.clearRect(0, 0, an, al);
+
+  var est = getComputedStyle(document.body);
+  var isobara = est.getPropertyValue('--isobara-fina').trim() || '#ddd';
+  var tinta = est.getPropertyValue('--frio').trim() || '#1d5f8a';
+  var suave = est.getPropertyValue('--tinta-suave').trim() || '#888';
+
   var pts = [];
   for (var i = 0; i < h.length; i++) if (h[i].temp !== null) pts.push(h[i].temp);
-  var nota = document.getElementById('grafico-nota');
+
+  ctx.strokeStyle = isobara; ctx.lineWidth = 1;
+  for (var g = 0; g <= 4; g++) {
+    var y = 8 + (al - 30) * (g / 4);
+    ctx.beginPath(); ctx.moveTo(0, y + .5); ctx.lineTo(an, y + .5); ctx.stroke();
+  }
+
+  var nota = document.getElementById('traza-nota');
   if (pts.length < 2) {
-    nota.textContent = 'Hacen falta al menos dos lecturas. Van ' + pts.length + '.';
+    nota.textContent = pts.length + ' de 2 lecturas';
+    ctx.fillStyle = suave;
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillText('La traza empieza con la segunda lectura.', 4, al / 2);
     return;
   }
+
   var min = Math.min.apply(null, pts), max = Math.max.apply(null, pts);
-  if (max - min < 1) { max = max + 0.5; min = min - 0.5; }
-  var est = getComputedStyle(document.body);
-  ctx.strokeStyle = est.getPropertyValue('--acento') || '#58a6ff';
-  ctx.lineWidth = 2; ctx.beginPath();
+  if (max - min < 1) { max += 0.5; min -= 0.5; }
+  ctx.strokeStyle = tinta; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.beginPath();
   for (var j = 0; j < pts.length; j++) {
-    var x = (j / (pts.length - 1)) * (an - 4) + 2;
-    var y = al - 12 - ((pts[j] - min) / (max - min)) * (al - 26);
-    if (j) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    var x = (j / (pts.length - 1)) * (an - 2) + 1;
+    var yy = (al - 22) - ((pts[j] - min) / (max - min)) * (al - 42);
+    if (j) ctx.lineTo(x, yy); else ctx.moveTo(x, yy);
   }
   ctx.stroke();
-  nota.textContent = pts.length + ' lecturas · mínima ' + min.toFixed(1) + ' °C · máxima ' +
-    max.toFixed(1) + ' °C · el historial del panel se borra al reiniciar (el archivo crudo, no)';
+
+  ctx.fillStyle = suave;
+  ctx.font = '11px ui-monospace, Consolas, monospace';
+  ctx.fillText(max.toFixed(1) + ' °C', 2, 20);
+  ctx.fillText(min.toFixed(1) + ' °C', 2, al - 4);
+  nota.textContent = pts.length + ' lecturas · el historial del panel se borra al reiniciar';
 }
 
 function probar (nombre) {
@@ -325,7 +630,7 @@ function probar (nombre) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nombre: nombre })
   }).then(function (r) {
-    alert(r.ok ? 'OK · ' + (r.detalle || '') : 'Falló · ' + (r.detalle || 'sin detalle'));
+    alert(r.ok ? 'Llegó bien. ' + (r.detalle || '') : 'No llegó. ' + (r.detalle || ''));
     refrescar();
   });
 }
@@ -338,13 +643,12 @@ var RECETAS = [], CONFIG = null, EDITANDO = null;
 function cargarRecetas () {
   return pedir('/api/recetas').then(function (r) {
     RECETAS = r;
-    var s = document.getElementById('f-receta');
-    var h = '';
+    var s = document.getElementById('f-receta'), h = '';
     for (var i = 0; i < r.length; i++) {
       h += '<option value="' + r[i].id + '">' + esc(r[i].nombre) + (r[i].verificado ? '' : ' · sin verificar') + '</option>';
     }
     s.innerHTML = h;
-    s.onchange = pintarCampos;
+    s.onchange = function () { pintarCampos(); };
     pintarCampos();
   });
 }
@@ -359,14 +663,15 @@ function pintarCampos (valores) {
   var r = recetaSel();
   if (!r) return;
   document.getElementById('f-notas').innerHTML =
-    (r.verificado ? '' : '<b class="amarillo">Receta sin verificar contra el servicio real.</b> ') +
-    esc(r.notas) + (r.doc ? ' <a href="' + esc(r.doc) + '" target="_blank" rel="noopener">documentación</a>' : '');
+    (r.verificado ? '' : '<b class="aviso">Receta sin probar contra el servicio real.</b> ') +
+    esc(r.notas) + (r.doc ? ' <a href="' + esc(r.doc) + '" target="_blank" rel="noopener">Documentación</a>' : '');
   var h = '';
   for (var i = 0; i < r.campos.length; i++) {
     var c = r.campos[i];
     var v = valores && valores[c.clave] ? valores[c.clave] : '';
-    h += '<label>' + esc(c.etiqueta) + (c.obligatorio ? '' : ' <span class="nota">(opcional)</span>') + '</label>' +
-      '<input data-cred="' + c.clave + '"' + (c.secreto ? ' type="password" placeholder="(sin cambios)"' : '') +
+    h += '<label for="c-' + esc(c.clave) + '">' + esc(c.etiqueta) + (c.obligatorio ? '' : ' · opcional') + '</label>' +
+      '<input id="c-' + esc(c.clave) + '" data-cred="' + esc(c.clave) + '"' +
+      (c.secreto ? ' type="password" placeholder="sin cambios"' : '') +
       ' value="' + esc(c.secreto ? '' : v) + '">';
   }
   document.getElementById('f-credenciales').innerHTML = h;
@@ -382,20 +687,25 @@ function cargarConfig () {
     document.getElementById('m-prefijo').value = c.mqtt.prefijo || 'homeassistant';
     document.getElementById('a-estacion').value = c.ajustes.estacion || '';
     document.getElementById('a-base').value = c.ajustes.base || '';
+    document.getElementById('cuenta-config').textContent =
+      c.destinos.length ? c.destinos.length + ' destinos' : '';
     var h = '';
     for (var i = 0; i < c.destinos.length; i++) {
       var d = c.destinos[i];
       var n = esc(d.nombre).replace(/'/g, '');
       h += '<tr><td>' + esc(d.nombre) + '</td><td>' + esc(d.receta || d.tipo) + '</td>' +
-        '<td>' + (d.intervalo_min ? d.intervalo_min + ' s' : 'cada envío') + '</td>' +
-        '<td>' + (d.activo ? '<span class="punto p-ok"></span>activo' : '<span class="punto p-off"></span>apagado') + '</td>' +
-        '<td style="text-align:right">' +
+        '<td>' + (d.intervalo_min ? 'cada ' + d.intervalo_min + ' s' : 'todos los envíos') + '</td>' +
+        '<td>' + (d.activo
+          ? '<span class="glifo g-ok">●</span>enviando'
+          : '<span class="glifo g-off">·</span>apagado') + '</td>' +
+        '<td class="num">' +
         '<button class="acc" onclick="editar(\\'' + n + '\\')">Editar</button>' +
         '<button class="acc" onclick="alternar(\\'' + n + '\\')">' + (d.activo ? 'Apagar' : 'Encender') + '</button>' +
         '<button class="acc peli" onclick="borrar(\\'' + n + '\\')">Borrar</button></td></tr>';
     }
     document.getElementById('tabla-config').innerHTML = h ||
-      '<tr><td colspan="5" class="vacio">Ninguno todavía.</td></tr>';
+      '<tr><td colspan="5"><div class="vacio">Ninguno todavía. Cargá el primero arriba: ' +
+      'empezá por Home Assistant.</div></td></tr>';
   });
 }
 
@@ -408,7 +718,7 @@ function editar (nombre) {
   var d = buscar(nombre);
   if (!d) return;
   EDITANDO = nombre;
-  document.getElementById('titulo-form').textContent = 'Editando: ' + nombre;
+  document.getElementById('titulo-form').textContent = 'Editando ' + nombre;
   document.getElementById('f-nombre').value = d.nombre;
   document.getElementById('f-receta').value = d.receta || 'webhook';
   pintarCampos(d.credenciales || {});
@@ -421,7 +731,7 @@ function editar (nombre) {
 
 document.getElementById('b-cancelar').onclick = function () {
   EDITANDO = null;
-  document.getElementById('titulo-form').textContent = 'Nuevo destino';
+  document.getElementById('titulo-form').textContent = 'Destino nuevo';
   document.getElementById('f-nombre').value = '';
   document.getElementById('f-activo').checked = false;
   document.getElementById('b-cancelar').style.display = 'none';
@@ -429,8 +739,7 @@ document.getElementById('b-cancelar').onclick = function () {
 };
 
 document.getElementById('b-guardar').onclick = function () {
-  var cred = {};
-  var ins = document.querySelectorAll('#f-credenciales input');
+  var cred = {}, ins = document.querySelectorAll('#f-credenciales input');
   for (var i = 0; i < ins.length; i++) cred[ins[i].dataset.cred] = ins[i].value;
   var d = {
     nombre: document.getElementById('f-nombre').value.trim(),
@@ -441,13 +750,13 @@ document.getElementById('b-guardar').onclick = function () {
     reintentos: Number(document.getElementById('f-reintentos').value) || 0,
     activo: document.getElementById('f-activo').checked
   };
-  if (!d.nombre) { alert('Falta el nombre.'); return; }
+  if (!d.nombre) { alert('Ponele un nombre al destino.'); return; }
   pedir('/api/destino', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ anterior: EDITANDO, destino: d })
   }).then(function (r) {
     if (r.error) { alert(r.error); return; }
-    if (r.faltan && r.faltan.length) alert('Guardado, pero le faltan credenciales: ' + r.faltan.join(', '));
+    if (r.faltan && r.faltan.length) alert('Guardado. Le faltan: ' + r.faltan.join(', '));
     document.getElementById('b-cancelar').onclick();
     cargarConfig();
   });
@@ -463,7 +772,7 @@ function alternar (nombre) {
 }
 
 function borrar (nombre) {
-  if (!confirm('Borrar "' + nombre + '"?\\n\\nSe quitan también sus entidades de Home Assistant.')) return;
+  if (!confirm('Borrar "' + nombre + '".\\n\\nSe quitan también sus entidades de Home Assistant.')) return;
   pedir('/api/destino?nombre=' + encodeURIComponent(nombre), { method: 'DELETE' }).then(cargarConfig);
 }
 
@@ -493,6 +802,13 @@ document.getElementById('b-ajustes').onclick = function () {
 cargarRecetas().then(cargarConfig);
 refrescar();
 setInterval(refrescar, 5000);
+// El redibujo al cambiar de tamaño usa lo que ya está en memoria. Pedirlo a la API seria
+// una llamada por cada cuadro mientras se arrastra el borde de la ventana.
+var redibujo = null;
+window.addEventListener('resize', function () {
+  clearTimeout(redibujo);
+  redibujo = setTimeout(function () { dibujar(HISTORIAL); }, 150);
+});
 </script>
 </body>
 </html>`
