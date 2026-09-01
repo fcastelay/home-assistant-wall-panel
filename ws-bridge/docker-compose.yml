@@ -1,4 +1,4 @@
-# Puente Ecowitt: recibe una o varias estaciones y las reparte a los servicios que quieras.
+# Weather Station Bridge: recibe una o varias estaciones y las reparte a los servicios que quieras.
 #
 #     cp .env.ejemplo .env      y cambiá lo que necesites
 #     docker compose up -d
@@ -17,8 +17,8 @@
 services:
   ecowitt:
     build: .
-    image: ecowitt-puente:local
-    container_name: ${NOMBRE_CONTENEDOR:-ecowitt-puente}
+    image: ws-bridge:local
+    container_name: ${NOMBRE_CONTENEDOR:-ws-bridge}
     restart: always
 
     # QUIEN CORRE EL PROCESO. Por defecto root, que baja solo a un usuario sin privilegios en el
@@ -58,7 +58,7 @@ services:
       - MQTT_CLAVE=${MQTT_CLAVE:-}
       - RAIZ_MQTT=${RAIZ_MQTT:-estacion}
       - PREFIJO_HA=${PREFIJO_HA:-homeassistant}
-      - NOMBRE_NODO=${NOMBRE_NODO:-Puente Ecowitt}
+      - NOMBRE_NODO=${NOMBRE_NODO:-Weather Station Bridge}
 
       # Modos de prueba.
       - SECO=${SECO:-}

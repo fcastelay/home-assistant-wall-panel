@@ -90,13 +90,25 @@ export async function atender (req, res, ctx) {
   }
 
   const esApi = ruta.startsWith('/api/')
-  if (!esApi && !(req.method === 'GET' && (ruta === '/' || ruta === '/index.html'))) return false
+  const esPagina = (req.method === 'GET' || req.method === 'HEAD') &&
+    (ruta === '/' || ruta === '/index.html')
+  if (!esApi && !esPagina) return false
 
   // La página se sirve siempre: adentro decide si muestra el panel, la pantalla de entrar o la
   // de instalar. Servir una página en blanco a quien no tiene sesión sería peor.
   if (!esApi) {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(PAGINA)
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      // NO SE CACHEA NUNCA, y esto costó una confusión el 01/09/2026: sin esta cabecera el
+      // navegador guarda la página por su cuenta, y después de actualizar el contenedor uno
+      // sigue viendo la versión anterior. Parece que el despliegue no funcionó cuando en
+      // realidad funcionó perfecto.
+      //
+      // La página es chica y cambia en cada actualización; lo que sí conviene cachear son los
+      // recursos, que llevan la variante en el nombre y tienen un año de cache.
+      'Cache-Control': 'no-store',
+    })
+    res.end(req.method === 'HEAD' ? undefined : PAGINA)
     return true
   }
 

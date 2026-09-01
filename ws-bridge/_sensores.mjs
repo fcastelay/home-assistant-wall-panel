@@ -245,7 +245,7 @@ export function descubrimientosNodo (o) {
 
   const aparato = {
     identifiers: [raiz + '_nodo'],
-    name: o.nombre || 'Puente Ecowitt',
+    name: o.nombre || 'Weather Station Bridge',
     model: 'Puente multi-estación',
     manufacturer: 'ecowitt-bridge',
   }

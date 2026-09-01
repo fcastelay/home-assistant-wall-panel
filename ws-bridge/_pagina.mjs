@@ -35,7 +35,7 @@ export const PAGINA = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Puente Ecowitt</title>
+<title>Weather Station Bridge</title>
 <style>
   /* --- Paleta: carta sinóptica sobre papel. El color sólo marca excepciones. --- */
   :root {
@@ -284,7 +284,7 @@ export const PAGINA = `<!doctype html>
 <!-- Compuerta 2: hay usuarios, falta la sesión. -->
 <div class="compuerta" id="c-entrar" style="display:none">
   <div class="bloque">
-    <div class="ceja anot">Puente Ecowitt</div>
+    <div class="ceja anot">Weather Station Bridge</div>
     <div class="cuerpo">
       <h2 class="anot">Entrar</h2>
       <p class="nota">El puente sigue recibiendo y archivando aunque nadie esté mirando.</p>
@@ -302,7 +302,7 @@ export const PAGINA = `<!doctype html>
 <div id="panel" style="display:none">
 
 <header class="barra">
-  <h1 class="marca anot">Puente <span>Ecowitt</span></h1>
+  <h1 class="marca anot">Weather Station <span>Bridge</span></h1>
   <div class="leyenda anot" id="leyenda"></div>
   <nav class="pestanas">
     <button data-v="monitor" class="sel">Observación</button>

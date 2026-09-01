@@ -1,4 +1,4 @@
-// Puente Ecowitt: recibe los datos de una o varias estaciones, los archiva y los reparte.
+// Weather Station Bridge: recibe los datos de una o varias estaciones, los archiva y los reparte.
 //
 //   node receptora.mjs                 escucha en el puerto 8088
 //   node receptora.mjs --puerto N
@@ -324,7 +324,7 @@ function conectarMqtt () {
     return
   }
 
-  conectar((e) => reintentar(e.message), { id: 'ecowitt-puente', will, credenciales: propias })
+  conectar((e) => reintentar(e.message), { id: 'ws-bridge', will, credenciales: propias })
     .then(c => {
       mqtt = c
       conectando = false
@@ -956,7 +956,7 @@ servidor.on('error', e => {
 
 servidor.listen(PUERTO, () => {
   const n = Object.keys(CONFIG.estaciones).length
-  console.log('=== ' + (CONFIG.nodo.nombre || 'Puente Ecowitt') + ', puerto ' + PUERTO)
+  console.log('=== ' + (CONFIG.nodo.nombre || 'Weather Station Bridge') + ', puerto ' + PUERTO)
   console.log('    panel:         http://localhost:' + PUERTO + '/')
   console.log('    archivo crudo: ' + DATOS)
   console.log('    estaciones:    ' + (n

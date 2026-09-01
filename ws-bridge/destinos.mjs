@@ -1,13 +1,13 @@
 // Administra los destinos del puente desde la línea de comandos.
 //
-//   node scripts/ecowitt/destinos.mjs                            lista lo que hay
-//   node scripts/ecowitt/destinos.mjs --recetas                  qué servicios se pueden cargar
-//   node scripts/ecowitt/destinos.mjs --probar "<nombre>"        le manda la última lectura real
-//   node scripts/ecowitt/destinos.mjs --agregar <archivo.json>   alta o edición desde un archivo
-//   node scripts/ecowitt/destinos.mjs --activar    "<nombre>"
-//   node scripts/ecowitt/destinos.mjs --desactivar "<nombre>"
-//   node scripts/ecowitt/destinos.mjs --borrar     "<nombre>"
-//   node scripts/ecowitt/destinos.mjs --puente http://otra-ip:8088
+//   node scripts/ws-bridge/destinos.mjs                            lista lo que hay
+//   node scripts/ws-bridge/destinos.mjs --recetas                  qué servicios se pueden cargar
+//   node scripts/ws-bridge/destinos.mjs --probar "<nombre>"        le manda la última lectura real
+//   node scripts/ws-bridge/destinos.mjs --agregar <archivo.json>   alta o edición desde un archivo
+//   node scripts/ws-bridge/destinos.mjs --activar    "<nombre>"
+//   node scripts/ws-bridge/destinos.mjs --desactivar "<nombre>"
+//   node scripts/ws-bridge/destinos.mjs --borrar     "<nombre>"
+//   node scripts/ws-bridge/destinos.mjs --puente http://otra-ip:8088
 //
 // HABLA CON EL PANEL, NO CON EL ARCHIVO. Es la decisión importante de este script.
 //
@@ -100,7 +100,7 @@ const verRecetas = async () => {
     credenciales: { api_key: 'LA-CLAVE', station: 0 },
     intervalo_min: 300, reintentos: 2, activo: false,
   }, null, 2))
-  console.log('\n  node scripts/ecowitt/destinos.mjs --agregar windy.json')
+  console.log('\n  node scripts/ws-bridge/destinos.mjs --agregar windy.json')
 }
 
 // ---------------------------------------------------------------- cambiar

@@ -31,7 +31,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url))
-const CARPETA = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-prueba-'))
+const CARPETA = fs.mkdtempSync(path.join(os.tmpdir(), 'wsbridge-prueba-'))
 const PUERTO = 18088
 const FALSO = 18089
 
@@ -109,7 +109,7 @@ const mandar = (cuerpo, ruta = '/data/report') => fetch('http://127.0.0.1:' + PU
 // ---------------------------------------------------------------- la corrida
 
 const main = async () => {
-  console.log('=== prueba del puente Ecowitt')
+  console.log('=== prueba del Weather Station Bridge')
   console.log('    carpeta temporal: ' + CARPETA + '\n')
 
   await new Promise(ok => falso.listen(FALSO, ok))
@@ -424,7 +424,15 @@ const main = async () => {
     titulo('la página')
     const pagina = await fetch('http://127.0.0.1:' + PUERTO + '/')
     const html = await pagina.text()
-    revisar(pagina.status === 200 && html.includes('Puente Ecowitt'), 'la página se sirve sin sesión')
+    revisar(pagina.status === 200 && html.includes('Weather Station Bridge'), 'la página se sirve sin sesión')
+    // LA PAGINA NO SE CACHEA. Sin esto, despues de actualizar el contenedor el navegador sigue
+    // mostrando la version anterior y parece que el despliegue no funciono. Paso el 01/09/2026.
+    revisar((pagina.headers.get('cache-control') || '').includes('no-store'),
+      'y con no-store: el navegador no se queda con la version vieja',
+      pagina.headers.get('cache-control') || 'SIN CABECERA')
+    const rec2 = await fetch('http://127.0.0.1:' + PUERTO + '/recursos/fuente.css')
+    revisar((rec2.headers.get('cache-control') || '').includes('immutable'),
+      'los recursos SI se cachean, que llevan la variante en el nombre')
     revisar(html.includes('id="tabla-destinos"'), 'y trae la tabla de destinos')
     const salud = await fetch('http://127.0.0.1:' + PUERTO + '/salud')
     revisar(salud.status === 200, 'la sonda de salud contesta sin pedir sesión')
@@ -440,7 +448,7 @@ const main = async () => {
   // Segunda instancia, carpeta nueva y las dos variables puestas. Es el camino que va a usar
   // todo el que instale con Docker, asi que tiene que estar probado y no supuesto.
   titulo('el administrador desde las variables del contenedor')
-  const carpeta2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-env-'))
+  const carpeta2 = fs.mkdtempSync(path.join(os.tmpdir(), 'wsbridge-env-'))
   const hijo2 = spawn(process.execPath, [path.join(AQUI, 'receptora.mjs'), '--puerto', '18091', '--sin-mqtt'], {
     env: { ...process.env, ARCHIVO: carpeta2, ADMIN_USUARIO: 'duenio', ADMIN_CLAVE: 'granizo2026' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -477,7 +485,7 @@ const main = async () => {
   // rellenaban antes de mirarlas. Una variable que figura y no funciona es peor que una que no
   // esta, porque el que instala cree que la configuro.
   titulo('las variables del instalador')
-  const carpeta3 = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-var-'))
+  const carpeta3 = fs.mkdtempSync(path.join(os.tmpdir(), 'wsbridge-var-'))
   const entorno = {
     ...process.env, ARCHIVO: carpeta3,
     RAIZ_MQTT: 'miclima', PREFIJO_HA: 'micasa', NOMBRE_NODO: 'Puente de la quinta',
@@ -521,7 +529,7 @@ const main = async () => {
 
   // Sin broker configurado no es un error: el puente sirve igual.
   titulo('sin Home Assistant')
-  const carpeta4 = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-nomqtt-'))
+  const carpeta4 = fs.mkdtempSync(path.join(os.tmpdir(), 'wsbridge-nomqtt-'))
   const limpio = { ...process.env, ARCHIVO: carpeta4, ADMIN_USUARIO: 'x', ADMIN_CLAVE: 'sinbroker2026' }
   delete limpio.MQTT_HOST; delete limpio.MQTT_USUARIO; delete limpio.MQTT_CLAVE
   const h4 = spawn(process.execPath, [path.join(AQUI, 'receptora.mjs'), '--puerto', '18093'],

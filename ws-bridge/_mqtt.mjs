@@ -125,7 +125,7 @@ const paquetePublish = (tema, contenido, retener) => {
  * `opciones.id`   prefijo del identificador de cliente (por defecto 'garnet-puente')
  * `opciones.will` testamento: { tema, contenido }. Ver `paqueteConnect`.
  * `opciones.credenciales` { host, puerto, usuario, clave } para saltear `credenciales()`.
- *                  Lo usa el puente Ecowitt, donde el broker se carga desde su panel web y
+ *                  Lo usa el Weather Station Bridge, donde el broker se carga desde su panel web y
  *                  no desde el entorno ni desde la configuracion de HA.
  */
 export const conectar = (alCaerse = () => {}, opciones = {}) => new Promise((ok, mal) => {

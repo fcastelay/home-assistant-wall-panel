@@ -95,7 +95,7 @@ const puertoValido = (v) => {
 
 const main = async () => {
   console.log('')
-  console.log('=== Puente Ecowitt · instalación')
+  console.log('=== Weather Station Bridge · instalación')
   console.log('')
 
   if (fs.existsSync(DESTINO) && !REHACER && !VER) {

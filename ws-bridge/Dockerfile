@@ -1,4 +1,4 @@
-# Imagen del puente Ecowitt.
+# Imagen del Weather Station Bridge.
 #
 # NO ES MULTI-ETAPA, y es a propósito: no hay nada que compilar ni dependencias que instalar.
 # Este proyecto no usa npm —el cliente MQTT está escrito a mano, ver _mqtt.mjs— así que la
@@ -6,10 +6,10 @@
 # agregaría una parte más que puede fallar en una actualización.
 #
 # EL CONTEXTO DE CONSTRUCCION es la carpeta armada, no el repositorio: los archivos del puente
-# viven en scripts/ecowitt/ pero _mqtt.mjs viene de scripts/garnet/, porque es el mismo cliente
+# viven en scripts/ws-bridge/ pero _mqtt.mjs viene de scripts/garnet/, porque es el mismo cliente
 # que usa la alarma y no tiene sentido tener dos copias. Se arma con:
 #
-#     node scripts/ecowitt/desplegar-nas.mjs --armar ./build
+#     node scripts/ws-bridge/desplegar-nas.mjs --armar ./build
 #
 # y ahí adentro se construye. El despliegue al NAS hace exactamente eso.
 

@@ -1,4 +1,4 @@
-# Puente Ecowitt
+# Weather Station Bridge
 
 Un nodo que recibe **una o varias** estaciones Ecowitt, **archiva todo crudo en disco** y lo
 reparte a los servicios que quieras — cada estación a los suyos.

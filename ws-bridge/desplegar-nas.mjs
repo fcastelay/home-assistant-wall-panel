@@ -1,12 +1,12 @@
-// Arma la carpeta del puente Ecowitt y la copia al Synology.
+// Arma la carpeta del Weather Station Bridge y la copia al Synology.
 //
-//   node scripts/ecowitt/desplegar-nas.mjs --ver          dice qué haría, sin escribir
-//   node scripts/ecowitt/desplegar-nas.mjs                copia al NAS
-//   node scripts/ecowitt/desplegar-nas.mjs --armar ./build   la arma en una carpeta local
+//   node scripts/ws-bridge/desplegar-nas.mjs --ver          dice qué haría, sin escribir
+//   node scripts/ws-bridge/desplegar-nas.mjs                copia al NAS
+//   node scripts/ws-bridge/desplegar-nas.mjs --armar ./build   la arma en una carpeta local
 //
 // POR QUE HACE FALTA ARMAR Y NO ALCANZA CON `docker build`
 //
-// Los archivos del puente viven en scripts/ecowitt/, pero `_mqtt.mjs` viene de scripts/garnet/:
+// Los archivos del puente viven en scripts/ws-bridge/, pero `_mqtt.mjs` viene de scripts/garnet/:
 // es el mismo cliente MQTT, ya probado en esta casa con la alarma, y tener dos copias
 // significaría que un arreglo sirve para una sola. Docker no puede salir de su contexto de
 // construcción, así que primero se junta todo en una carpeta y ahí adentro se construye.
@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url'
 const VER = process.argv.includes('--ver')
 const iArmar = process.argv.indexOf('--armar')
 const AQUI = path.dirname(fileURLToPath(import.meta.url))
-const DESTINO = iArmar !== -1 ? path.resolve(process.argv[iArmar + 1] || './build') : '//TU_IP_LAN/docker/ecowitt'
+const DESTINO = iArmar !== -1 ? path.resolve(process.argv[iArmar + 1] || './build') : '//TU_IP_LAN/docker/ws-bridge'
 const PUERTO = 8088
 
 // Todo lo que va a la imagen. Si mañana se agrega un módulo, va acá — el Dockerfile hace
@@ -70,7 +70,7 @@ const escribirEnv = (carpeta) => {
   const yaTiene = (clave) => new RegExp('^' + clave + '=', 'm').test(previo)
 
   const lineas = [
-    '# Generado por scripts/ecowitt/desplegar-nas.mjs. NO se versiona.',
+    '# Generado por scripts/ws-bridge/desplegar-nas.mjs. NO se versiona.',
     '# Lo que falte, mirá .env.ejemplo: está todo explicado ahí.',
     '',
     'PUERTO=' + PUERTO,
@@ -114,7 +114,7 @@ const escribirEnv = (carpeta) => {
 }
 
 const main = () => {
-  console.log('=== puente Ecowitt')
+  console.log('=== Weather Station Bridge')
   console.log('    destino: ' + DESTINO + (VER ? '   [modo diagnóstico: no escribe]' : ''))
   console.log('')
 
@@ -195,7 +195,7 @@ const main = () => {
   console.log('\n=== copiado. Lo que sigue, a mano:')
   console.log('')
   console.log('  1. Container Manager -> Proyecto -> Crear')
-  console.log('     ruta: docker/ecowitt     fuente: docker-compose.yml')
+  console.log('     ruta: docker/ws-bridge     fuente: docker-compose.yml')
   console.log('     (construye la imagen; la primera vez tarda un minuto)')
   console.log('  2. Abrir el panel: http://TU_IP_LAN:' + PUERTO + '/')
   console.log('  3. Cuando llegue el GW3000: apuntarlo al NAS, puerto ' + PUERTO + ', ruta /data/report')

@@ -47,7 +47,7 @@ export const VACIA = {
 
   // Ajustes del nodo entero. Lo que no se toca desde el panel llega por variables de entorno.
   nodo: {
-    nombre: 'Puente Ecowitt',
+    nombre: 'Weather Station Bridge',
     // Prefijo de los temas MQTT de cada estación. El id de la estación se agrega solo:
     // `estacion/patio/datos`. Se puede cambiar si ya hay otro puente publicando en la misma
     // raíz, que es el caso de quien corre dos nodos contra un mismo Home Assistant.

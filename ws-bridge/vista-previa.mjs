@@ -1,6 +1,6 @@
 // Genera una vista previa autónoma del panel, con datos de ejemplo.
 //
-//   node scripts/ecowitt/vista-previa.mjs [archivo.html]
+//   node scripts/ws-bridge/vista-previa.mjs [archivo.html]
 //
 // POR QUE EXISTE
 //

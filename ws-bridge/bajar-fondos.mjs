@@ -91,7 +91,7 @@ const main = async () => {
   const creditos = [
     '# Créditos de las fotos de fondo',
     '',
-    'Bajadas con `node scripts/ecowitt/bajar-fondos.mjs`.',
+    'Bajadas con `node scripts/ws-bridge/bajar-fondos.mjs`.',
     '',
     'Vienen de [Picsum](https://picsum.photos), que sirve fotografías de',
     '[Unsplash](https://unsplash.com). La licencia de Unsplash permite usarlas, incluso',
@@ -108,7 +108,7 @@ const main = async () => {
     'Corré el script con otros ids y este archivo se regenera:',
     '',
     '```',
-    'node scripts/ecowitt/bajar-fondos.mjs 1016 1043 984 1024',
+    'node scripts/ws-bridge/bajar-fondos.mjs 1016 1043 984 1024',
     '```',
     '',
     'O poné fotos propias en esta carpeta con el mismo nombre y borrá las filas de acá. Fotos',

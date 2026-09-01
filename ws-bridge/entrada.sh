@@ -6,7 +6,7 @@
 # El contenedor moría 0,6 segundos después de arrancar, en bucle, con ExitCode 1 y el
 # registro vacío. La causa:
 #
-#     /volume1/docker/ecowitt/datos   dueño uid 1026 (el usuario del NAS)
+#     /volume1/docker/ws-bridge/datos   dueño uid 1026 (el usuario del NAS)
 #     el contenedor corría como       uid 1000 (el usuario 'node' de la imagen)
 #
 # 1000 no es 1026, no está en su grupo, y "otros" no tiene permiso de escritura. Lo primero
