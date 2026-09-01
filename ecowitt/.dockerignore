@@ -10,6 +10,7 @@
 
 datos/
 mqtt.env
+.env
 *.migrado
 *.roto-*
 config.json

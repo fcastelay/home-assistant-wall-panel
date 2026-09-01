@@ -14,6 +14,19 @@ services:
     container_name: ecowitt-puente
     restart: always
 
+    # QUIEN CORRE EL PROCESO, y por que es una variable y no un numero fijo.
+    #
+    # Por defecto arranca como root y baja a `node` en el arranque (ver entrada.sh), despues de
+    # acomodar el dueño del volumen. Eso funciona en cualquier instalacion.
+    #
+    # Pero si el .env de al lado define UID_DATOS, se corre DIRECTO como ese usuario. Sirve
+    # para el caso en que uno no puede reconstruir la imagen —el 01/09/2026, en este NAS, el
+    # boton Compilar de Container Manager no aparecia y la API no rehacia la imagen— y alcanza
+    # con arrancar el contenedor con el uid que ya es dueño de `datos/`.
+    #
+    # El .env lo escribe el despliegue con el numero medido. No se versiona: es de cada NAS.
+    user: "${UID_DATOS:-0}:${GID_DATOS:-0}"
+
     ports:
       # Un solo puerto: por acá entra la estación y por acá se abre el panel.
       - "8088:8088"
