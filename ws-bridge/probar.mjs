@@ -393,6 +393,58 @@ const main = async () => {
     const soloAdmin = us_ultimo(cfgFinal)
     revisar(soloAdmin, 'queda al menos un administrador')
 
+    // ============================================================ los protocolos de entrada
+    //
+    // EL QUE MAS IMPORTA ES WUNDERGROUND POR GET. Es el formato que soportan como "servidor
+    // personalizado" casi todas las marcas que no son Ecowitt —Ambient, Acurite, Meteobridge,
+    // WeeWX, Cumulus, Davis por WeatherLink— y hasta el 01/09/2026 este puente contestaba 404.
+    // La estacion no avisa: simplemente no llegaban datos.
+    titulo('los protocolos de entrada')
+    const antesProto = (await api('/api/estado')).cuerpo.nodo.estaciones
+
+    const wu = await fetch('http://127.0.0.1:' + PUERTO +
+      '/weatherstation/updateweatherstation.php?ID=KTEST1&PASSWORD=x&dateutc=now' +
+      '&tempf=61.7&humidity=64&baromin=29.92&windspeedmph=5.6&action=updateraw')
+    const wuTexto = await wu.text()
+    revisar(wu.status === 200, 'Wunderground por GET entra', 'HTTP ' + wu.status)
+    revisar(wuTexto.trim() === 'success',
+      'y contesta "success", que es lo que ese protocolo espera', wuTexto.trim())
+
+    const js = await fetch('http://127.0.0.1:' + PUERTO + '/data/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estacion: 'casera', tempf: 50.0, humidity: 80, windspeedmph: 2 }),
+    })
+    revisar(js.status === 200, 'un JSON generico tambien', 'HTTP ' + js.status)
+
+    // Con los nombres YA normalizados: es la salida del webhook de este mismo puente. Sirve
+    // para encadenar dos nodos sin traducir nada en el medio.
+    const js2 = await fetch('http://127.0.0.1:' + PUERTO + '/data/report', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estacion: 'reenviada', temp_ext: 21.5, hum_ext: 55, viento: 12.3 }),
+    })
+    revisar(js2.status === 200, 'y un JSON con los nombres ya normalizados')
+    await dormir(500)
+
+    const trasProto = (await api('/api/estaciones?por=200')).cuerpo
+    revisar(trasProto.total === antesProto + 3,
+      'las tres aparecieron como estaciones distintas', antesProto + ' + 3 = ' + trasProto.total)
+    const ids = trasProto.estaciones.map(x => x.id)
+    revisar(ids.includes('ktest1') && ids.includes('casera') && ids.includes('reenviada'),
+      'cada una con su propio identificador, no todas en sin_identificar', ids.slice(-3).join(', '))
+
+    const reenviada = (await api('/api/estacion?id=reenviada')).cuerpo
+    revisar(reenviada.datos.temp_ext === 21.5 && reenviada.datos.viento === 12.3,
+      'los nombres normalizados entran sin traducir', 'temp_ext=' + reenviada.datos.temp_ext)
+    const ktest = (await api('/api/estacion?id=ktest1')).cuerpo
+    revisar(ktest.datos.temp_ext === 16.5,
+      'y el Wunderground se convierte igual que el Ecowitt', '61.7 F = ' + ktest.datos.temp_ext + ' C')
+    revisar(ktest.datos.presion_rel === 1013.2,
+      'incluida la presion, que ahi se llama baromin y no baromrelin', ktest.datos.presion_rel + ' hPa')
+
+    // Y lo que NO tiene que entrar: un GET cualquiera al puerto sigue siendo un 404.
+    const nada = await fetch('http://127.0.0.1:' + PUERTO + '/cualquier/cosa')
+    revisar(nada.status === 404, 'un GET sin datos de estacion sigue dando 404', 'HTTP ' + nada.status)
+
     // ============================================================ la escala
     //
     // LA PRUEBA QUE JUSTIFICA HABER PARTIDO LA API. Antes, /api/estado devolvia cada estacion

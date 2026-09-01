@@ -36,7 +36,9 @@ const kmh = (mph) => mph * 1.609344
  * @returns objeto con los campos presentes, en métrico y en imperial
  */
 export function normalizar (cuerpo) {
-  const p = new URLSearchParams(cuerpo)
+  // Acepta el texto crudo o un mapa de claves ya armado. Lo segundo es lo que le pasa
+  // `_protocolos.mjs`, que ya reconocio de que protocolo viene y aplano el JSON si hacia falta.
+  const p = cuerpo instanceof URLSearchParams ? cuerpo : new URLSearchParams(cuerpo)
   const n = (...claves) => {
     for (const k of claves) {
       const v = p.get(k)
@@ -149,6 +151,42 @@ export function normalizar (cuerpo) {
   for (let i = 1; i <= 8; i++) {
     set('bat_ch' + i, n('batt' + i, 'wh31batt' + i))
     set('bat_tierra_' + i, n('soilbatt' + i))
+  }
+
+  // LOS NOMBRES YA NORMALIZADOS ENTRAN TAL CUAL, y eso hace que un puente le pueda hablar a
+  // otro: lo que sale por el webhook generico vuelve a entrar por el protocolo JSON sin
+  // traducir nada. Se aceptan solo los que el catalogo conoce, para que un campo cualquiera no
+  // se cuele con nombre de medicion.
+  for (const k of Object.keys(salida)) { /* ya estan */ }
+  for (const [k, v] of p.entries()) {
+    if (salida[k] !== undefined) continue
+    if (!/^(temp_ext|temp_int|hum_ext|hum_int|rocio|sensacion|presion_rel|presion_abs|viento|rafaga|rafaga_max_dia|viento_dir|lluvia_[a-z]+|solar|uv|pm25|pm10|co2|co2_int|rayos_[a-z]+|tierra_\d+|hoja_\d+|temp_ch\d+|hum_ch\d+)$/.test(k)) continue
+    const f = parseFloat(v)
+    if (!Number.isNaN(f)) salida[k] = f
+  }
+
+  // LOS NOMBRES YA NORMALIZADOS ENTRAN TAL CUAL, y eso hace que un puente le pueda hablar a
+  // otro: lo que sale por el webhook generico vuelve a entrar por el protocolo JSON sin
+  // traducir nada. Se aceptan solo los que el catalogo conoce, para que un campo cualquiera no
+  // se cuele con nombre de medicion.
+  for (const k of Object.keys(salida)) { /* ya estan */ }
+  for (const [k, v] of p.entries()) {
+    if (salida[k] !== undefined) continue
+    if (!/^(temp_ext|temp_int|hum_ext|hum_int|rocio|sensacion|presion_rel|presion_abs|viento|rafaga|rafaga_max_dia|viento_dir|lluvia_[a-z]+|solar|uv|pm25|pm10|co2|co2_int|rayos_[a-z]+|tierra_\d+|hoja_\d+|temp_ch\d+|hum_ch\d+)$/.test(k)) continue
+    const f = parseFloat(v)
+    if (!Number.isNaN(f)) salida[k] = f
+  }
+
+  // LOS NOMBRES YA NORMALIZADOS ENTRAN TAL CUAL, y eso hace que un puente le pueda hablar a
+  // otro: lo que sale por el webhook generico vuelve a entrar por el protocolo JSON sin
+  // traducir nada. Se aceptan solo los que el catalogo conoce, para que un campo cualquiera no
+  // se cuele con nombre de medicion.
+  for (const k of Object.keys(salida)) { /* ya estan */ }
+  for (const [k, v] of p.entries()) {
+    if (salida[k] !== undefined) continue
+    if (!/^(temp_ext|temp_int|hum_ext|hum_int|rocio|sensacion|presion_rel|presion_abs|viento|rafaga|rafaga_max_dia|viento_dir|lluvia_[a-z]+|solar|uv|pm25|pm10|co2|co2_int|rayos_[a-z]+|tierra_\d+|hoja_\d+|temp_ch\d+|hum_ch\d+)$/.test(k)) continue
+    const f = parseFloat(v)
+    if (!Number.isNaN(f)) salida[k] = f
   }
 
   return salida

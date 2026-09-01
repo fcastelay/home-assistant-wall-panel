@@ -28,6 +28,7 @@
 
 import { PAGINA } from './_pagina.mjs'
 import { catalogo, faltantes, RECETAS } from './_recetas.mjs'
+import { catalogo as catalogoProtocolos } from './_protocolos.mjs'
 import { sinSecretos, fundirSecretos } from './_config.mjs'
 import * as us from './_usuarios.mjs'
 import { servir } from './_estaticos.mjs'
@@ -60,7 +61,7 @@ const leerCuerpo = (req) => new Promise((ok) => {
  * endpoint que se agrega el mes que viene, y ese endpoint queda abierto sin que nadie lo note.
  */
 const LECTURA = new Set(['/api/estado', '/api/estaciones', '/api/estacion',
-  '/api/recetas', '/api/config', '/api/sesion'])
+  '/api/recetas', '/api/protocolos', '/api/config', '/api/sesion'])
 const ESCRITURA = new Set(['/api/destino', '/api/config', '/api/probar', '/api/estacion', '/api/usuarios'])
 
 /**
@@ -171,6 +172,8 @@ export async function atender (req, res, ctx) {
   // ---- lectura
   if (ruta === '/api/estado') return json(res, ctx.estado()), true
   if (ruta === '/api/recetas') return json(res, catalogo()), true
+  // Los protocolos de ENTRADA, para la pantalla que explica como apuntar un gateway.
+  if (ruta === '/api/protocolos') return json(res, catalogoProtocolos()), true
 
   // El listado paginado. Sin esto, con 200 estaciones el panel pediria 4,6 MB cada 5 segundos.
   if (ruta === '/api/estaciones') {

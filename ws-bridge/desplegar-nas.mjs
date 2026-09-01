@@ -36,7 +36,7 @@ const PUERTO = 8088
 const PROPIOS = [
   'receptora.mjs', '_normalizar.mjs', '_destinos.mjs', '_recetas.mjs',
   '_sensores.mjs', '_config.mjs', '_panel.mjs', '_pagina.mjs', '_registro.mjs',
-  '_usuarios.mjs', '_estaticos.mjs',
+  '_usuarios.mjs', '_estaticos.mjs', '_protocolos.mjs',
 ]
 // La carpeta de recursos entera: tipografia, iconos y fondos. Se copia con su estructura.
 const CARPETAS = ['recursos']

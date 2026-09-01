@@ -49,7 +49,8 @@ import { fileURLToPath } from 'node:url'
 // este respaldo, el puente **no se puede correr fuera del contenedor**, que es justo donde uno
 // quiere probarlo antes de subirlo.
 const { conectar } = await import('./_mqtt.mjs').catch(() => import('../garnet/_mqtt.mjs'))
-import { normalizar, pareceEnvio } from './_normalizar.mjs'
+import { normalizar } from './_normalizar.mjs'
+import { reconocer, catalogo as catalogoProtocolos } from './_protocolos.mjs'
 import { enviarA } from './_destinos.mjs'
 import { RECETAS } from './_recetas.mjs'
 import * as cfg from './_config.mjs'
@@ -894,9 +895,25 @@ const servidor = http.createServer(async (req, res) => {
     return
   }
 
+  // UN GET TAMBIEN PUEDE SER UN ENVIO. El formato Wunderground —el que mas marcas soportan como
+  // servidor personalizado— manda los datos en la URL. Hasta el 01/09/2026 esto contestaba 404
+  // y la estacion no avisaba nada.
+  //
+  // El panel ya se atendio arriba, asi que un GET que llega hasta aca no es del panel.
+  if (req.method === 'GET') {
+    const visto = reconocer(req, '', new URL(req.url, 'http://x').search.slice(1))
+    if (!visto) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+      return res.end('No hay nada aca. El panel esta en /\n')
+    }
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end('success\n')
+    return void ingresar(visto, new URL(req.url, 'http://x').pathname)
+  }
+
   if (req.method !== 'POST') {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-    return res.end('No hay nada acá. El panel está en /\n')
+    return res.end('No hay nada aca. El panel esta en /\n')
   }
 
   let cuerpo = ''
@@ -908,22 +925,37 @@ const servidor = http.createServer(async (req, res) => {
   })
 
   req.on('end', async () => {
-    if (!pareceEnvio(cuerpo)) {
+    const visto = reconocer(req, cuerpo, '')
+    if (!visto) {
       res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
-      return res.end('Esto no parece un envío de estación.\n')
+      return res.end('Esto no parece un envio de estacion.\n')
     }
 
-    const campos = normalizar(cuerpo)
-    const est = ubicar(campos, new URL(req.url, 'http://x').pathname)
+    // 2) contestar YA, sin esperar a los destinos. La estacion no tiene por que esperar a que
+    //    Home Assistant conteste: si un destino tarda 15 s, el gateway daria el envio por
+    //    fallado y algunos dejan de mandar despues de varios fallos.
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end('OK')
+    ingresar(visto, new URL(req.url, 'http://x').pathname)
+  })
+})
+
+/**
+ * Lo que pasa con un envio ya reconocido, venga por GET o por POST.
+ *
+ * ESTA APARTE PORQUE LOS DOS CAMINOS HACEN LO MISMO. Cuando estaba duplicado dentro del
+ * servidor, el de GET no existia; el dia que se agrego, tener una sola copia evito que se
+ * fueran separando.
+ */
+async function ingresar (visto, ruta) {
+  {
+    const cuerpo = visto.crudo
+    const campos = normalizar(visto.params)
+    campos.protocolo = visto.protocolo
+    const est = ubicar(campos, ruta)
 
     // 1) archivar SIEMPRE y PRIMERO, esté la estación encendida o apagada
     const guardado = archivar(est.id, cuerpo)
-
-    // 2) contestar YA, sin esperar a los destinos. La estación no tiene por qué esperar a que
-    //    Home Assistant conteste: si un destino tarda 15 s, el gateway daría el envío por
-    //    fallado y algunos gateways dejan de mandar después de varios fallos.
-    res.writeHead(200, { 'Content-Type': 'text/plain' })
-    res.end('OK')
 
     recibidosNodo++
     const e = estadoEstacion(est.id)
@@ -935,7 +967,7 @@ const servidor = http.createServer(async (req, res) => {
     e.campos = campos
     e.crudo = cuerpo
     anotarLectura(est.id, campos)
-    anotar('info', est.id + ' #' + e.recibidos + '  ' + resumen(campos) +
+    anotar('info', est.id + ' #' + e.recibidos + ' [' + visto.protocolo + ']  ' + resumen(campos) +
       (guardado ? '' : '   [SIN ARCHIVAR]') + (est.activa ? '' : '   [apagada: no se reparte]'))
 
     if (!est.activa) return
@@ -946,8 +978,8 @@ const servidor = http.createServer(async (req, res) => {
 
     await repartir(est, cuerpo, campos)
     publicarNodo()
-  })
-})
+  }
+}
 
 servidor.on('error', e => {
   console.error('No se pudo escuchar en el puerto ' + PUERTO + ': ' + e.code)

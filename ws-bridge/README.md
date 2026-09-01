@@ -72,6 +72,41 @@ vuelve a aplicar el usuario y la contraseña aunque ya existan.
 
 ---
 
+## Qué estaciones entran
+
+El puente entiende **tres protocolos de entrada**. No hay que elegirlo en ningún lado: reconoce
+cuál es por lo que llega.
+
+| Protocolo | Cómo llega | Qué marcas |
+|---|---|---|
+| **Ecowitt** | POST con los datos en el cuerpo | Ecowitt, Froggit, Ambient con firmware Ecowitt |
+| **Weather Underground** | GET con los datos en la URL | **Casi todas las demás**: Ambient, Acurite, Meteobridge, WeeWX, Cumulus MX, Weather Display, Davis por WeatherLink |
+| **JSON genérico** | POST con `application/json` | Lo que no habla ninguno de los otros: un script propio, un ESP32 casero, otro puente |
+
+El de Wunderground es el que más marcas soportan como "servidor personalizado", así que si tu
+estación no es Ecowitt, **casi seguro habla ese**. Se configura igual: apuntás el servidor y el
+puerto, y el resto lo resuelve el puente.
+
+El JSON acepta los mismos nombres de campo que los otros dos (`tempf`, `humidity`) **y también
+los ya normalizados** (`temp_ext`, `viento`). Eso último permite encadenar dos puentes: lo que
+sale por el webhook genérico de uno entra por el JSON del otro sin traducir nada.
+
+La estación se identifica con `PASSKEY` (Ecowitt), `ID` (Wunderground) o `estacion` (JSON).
+
+### Lo que todavía no entra, y qué haría falta
+
+| | Por qué no |
+|---|---|
+| **WeatherFlow Tempest** | Emite por UDP en la red local, no por HTTP. Hace falta un escucha UDP en el puerto 50222 — y en Docker, red en modo `host`, que este compose evita a propósito |
+| **Davis WeatherLink Live** (directo) | Su API local se **consulta**, no empuja. Haría falta un consultador periódico en vez de un receptor. Igual entra por Wunderground si se configura el envío |
+| **Netatmo** | Sólo por su nube, con OAuth. Es un consultador, no un receptor |
+
+Los tres son sumables: el reconocimiento de protocolos vive en una tabla
+([`_protocolos.mjs`](_protocolos.mjs)) y agregar uno es una entrada más. Lo que cambia en esos
+casos no es el formato sino **el transporte**, y eso sí toca el servidor.
+
+---
+
 ## Apuntar una estación
 
 En la app **WSView Plus**, o en la interfaz web del gateway:
