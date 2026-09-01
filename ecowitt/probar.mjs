@@ -174,14 +174,19 @@ const main = async () => {
     await mandar(envio('BBB222', 'GW2000A', '50.0'))
     await dormir(600)
 
-    let est = (await api('/api/estado')).cuerpo.estaciones
+    let est = (await api('/api/estaciones')).cuerpo.estaciones
     revisar(est.length === 2, 'se descubrieron 2 estaciones', est.map(e => e.id).join(', '))
     revisar(est.every(e => !e.activa), 'las dos nacen APAGADAS')
     revisar(est.every(e => e.nombre === ''), 'y sin nombre, esperando que alguien las bautice')
-    revisar(est.every(e => /^…/.test(e.passkey)), 'el PASSKEY sólo se muestra por sus últimos dígitos')
+    const uno = (await api('/api/estacion?id=' + est[0].id)).cuerpo
+    revisar(/^\.\.\./.test(uno.passkey) || /^…/.test(uno.passkey),
+      'el PASSKEY solo se muestra por sus ultimos digitos', uno.passkey)
 
     const dia = (() => { const h = new Date(); return h.getFullYear() + String(h.getMonth() + 1).padStart(2, '0') + String(h.getDate()).padStart(2, '0') + '.txt' })()
-    const a = est[0].id, b = est[1].id
+    // Por MODELO, no por posicion: el listado se ordena por nombre y las dos nacen sin
+    // nombre, asi que el desempate por id las puede dar vuelta.
+    const a = est.find(x => x.modelo === "GW3000A").id
+    const b = est.find(x => x.modelo === "GW2000A").id
     revisar(fs.existsSync(path.join(CARPETA, a, dia)) && fs.existsSync(path.join(CARPETA, b, dia)),
       'cada una archiva en su propia carpeta', a + '/ y ' + b + '/')
     const crudoA = fs.readFileSync(path.join(CARPETA, a, dia), 'utf8')
@@ -190,7 +195,7 @@ const main = async () => {
 
     revisar((await post('/api/estacion', { id: a, nombre: 'Patio', activa: true })).cuerpo.ok === true,
       'se la bautiza y se la enciende')
-    est = (await api('/api/estado')).cuerpo.estaciones
+    est = (await api('/api/estaciones')).cuerpo.estaciones
     revisar(est.find(e => e.id === a).nombre === 'Patio', 'queda con su nombre')
 
     // ============================================================ reparto
@@ -224,7 +229,7 @@ const main = async () => {
     revisar(cuenta('/roto') === 1, 'el 404 NO se reintenta pese a reintentos:1', 'golpes=' + cuenta('/roto'))
     revisar(cuenta('/caido') === 2, 'el 500 SI se reintenta una vez', 'golpes=' + cuenta('/caido'))
 
-    const est2 = (await api('/api/estado')).cuerpo.estaciones
+    const est2 = (await api('/api/estaciones')).cuerpo.estaciones
     const apagada = est2.find(e => e.id === b)
     revisar(apagada.recibidos === 2, 'la estación apagada igual cuenta sus envíos')
     revisar(fs.readFileSync(path.join(CARPETA, b, dia), 'utf8').split('\n').filter(Boolean).length === 2,
@@ -312,13 +317,38 @@ const main = async () => {
     titulo('el estado que ve el panel')
     const e3 = (await api('/api/estado')).cuerpo
     revisar(e3.nodo.estaciones === 2 && e3.nodo.activas === 2, 'el nodo cuenta 2 estaciones activas')
-    revisar(e3.nodo.algo_mal === 'ON', 'y avisa que algo no está funcionando (el 404 y el 500)')
-    const filas = e3.destinos
-    revisar(filas.filter(f => f.nombre === 'Central').length === 2,
-      'el comodín aparece como DOS filas, una por estación', filas.filter(f => f.nombre === 'Central').map(f => f.estacion).join(', '))
-    revisar(filas.filter(f => f.nombre === 'Del patio').length === 1, 'y el atado a una, como una sola')
-    const roto = filas.find(f => f.nombre === 'Roto')
-    revisar(String(roto.detalle).startsWith('HTTP 404') && roto.problema === true, 'el 404 figura como problema')
+    revisar(e3.nodo.algo_mal === 'ON', 'y avisa que algo no esta funcionando (el 404 y el 500)')
+    revisar(e3.estaciones === undefined,
+      'el agregado ya NO trae las estaciones: es lo que lo hacia crecer con cada una')
+    revisar(typeof e3.nodo.paquetes_hoy === 'number' && e3.nodo.paquetes_hoy > 0,
+      'cuenta los paquetes del dia', e3.nodo.paquetes_hoy + ' hoy')
+    revisar(typeof e3.nodo.uptime_s === 'number', 'y el tiempo encendido')
+
+    const central = e3.destinos.filter(f => f.nombre === 'Central')
+    revisar(central.length === 1 && central[0].estaciones === 2,
+      'un comodin es UN renglon que dice a cuantas estaciones va', 'estaciones=' + central[0].estaciones)
+    revisar(central[0].tasa24h !== null, 'con su tasa de aciertos de 24 h', central[0].tasa24h + ' %')
+    const roto3 = e3.destinos.find(f => f.nombre === 'Roto')
+    revisar(roto3.problema === 1, 'el 404 figura con 1 estacion en problemas')
+
+    // El detalle: aca SI van los 67 campos y el historial.
+    const det = (await api('/api/estacion?id=' + a)).cuerpo
+    revisar(det.datos && det.datos.temp_ext !== undefined, 'el detalle trae los campos de la lectura')
+    revisar(Array.isArray(det.historial) && det.historial.length > 0, 'y el historial')
+    revisar(Array.isArray(det.destinos) && det.destinos.length > 0,
+      'y los destinos de esa estacion', det.destinos.length + ' destinos')
+    revisar((await api('/api/estacion?id=no_existe')).codigo === 404, 'una estacion inventada da 404')
+
+    // El listado: filtros, busqueda y paginacion.
+    const lis = (await api('/api/estaciones')).cuerpo
+    revisar(lis.total === 2 && lis.pagina === 1, 'el listado pagina', lis.total + ' en ' + lis.paginas + ' pagina')
+    revisar(lis.estaciones[0].datos === undefined && lis.estaciones[0].historial === undefined,
+      'y NO trae los campos ni el historial: para eso esta el detalle')
+    revisar(lis.cuenta.todas === 2, 'y cuenta por situacion para los filtros')
+    const uno2 = (await api('/api/estaciones?por=1')).cuerpo
+    revisar(uno2.estaciones.length === 1 && uno2.paginas === 2, 'por=1 devuelve una sola y dice que hay 2 paginas')
+    const busca = (await api('/api/estaciones?buscar=' + encodeURIComponent(a))).cuerpo
+    revisar(busca.total === 1, 'el buscador filtra', busca.total + ' resultado')
 
     // ============================================================ secretos
     titulo('las credenciales')
@@ -362,6 +392,33 @@ const main = async () => {
 
     const soloAdmin = us_ultimo(cfgFinal)
     revisar(soloAdmin, 'queda al menos un administrador')
+
+    // ============================================================ la escala
+    //
+    // LA PRUEBA QUE JUSTIFICA HABER PARTIDO LA API. Antes, /api/estado devolvia cada estacion
+    // con sus 67 campos y sus 240 puntos de historial: medido con 200 estaciones daba 4,6 MB
+    // POR PEDIDO, y el panel lo pide cada 5 segundos.
+    titulo('la escala')
+    // Cuantas habia ANTES, no un numero fijo: para cuando corre esto ya se borro una estacion
+    // en el bloque anterior. Una prueba con un numero cableado se rompe cada vez que alguien
+    // agrega un paso mas arriba.
+    const antesDeCargar = (await api('/api/estado')).cuerpo.nodo.estaciones
+    for (let i = 1; i <= 50; i++) {
+      await mandar(envio('CARGA' + String(i).padStart(3, '0'), 'GW1000', '60.0'))
+    }
+    await dormir(400)
+    const agregado = await fetch('http://127.0.0.1:' + PUERTO + '/api/estado', { headers: { Cookie: COOKIE } })
+    const cuerpoAgregado = await agregado.text()
+    const listado = await fetch('http://127.0.0.1:' + PUERTO + '/api/estaciones?por=20', { headers: { Cookie: COOKIE } })
+    const cuerpoListado = await listado.text()
+    const conCincuenta = JSON.parse(cuerpoAgregado).nodo.estaciones
+
+    revisar(conCincuenta === antesDeCargar + 50, 'se descubrieron las 50 estaciones de carga',
+      antesDeCargar + ' + 50 = ' + conCincuenta)
+    revisar(cuerpoAgregado.length < 12000,
+      'el agregado sigue siendo chico con 52 estaciones', (cuerpoAgregado.length / 1024).toFixed(1) + ' KB')
+    revisar(cuerpoListado.length < 12000,
+      'y una pagina de 20 tambien', (cuerpoListado.length / 1024).toFixed(1) + ' KB')
 
     // ============================================================ la página
     titulo('la página')

@@ -59,7 +59,8 @@ const leerCuerpo = (req) => new Promise((ok) => {
  * SE ENUMERA LO QUE SE PERMITE, no lo que se prohíbe. Una lista de prohibidos se olvida del
  * endpoint que se agrega el mes que viene, y ese endpoint queda abierto sin que nadie lo note.
  */
-const LECTURA = new Set(['/api/estado', '/api/recetas', '/api/config', '/api/sesion'])
+const LECTURA = new Set(['/api/estado', '/api/estaciones', '/api/estacion',
+  '/api/recetas', '/api/config', '/api/sesion'])
 const ESCRITURA = new Set(['/api/destino', '/api/config', '/api/probar', '/api/estacion', '/api/usuarios'])
 
 /**
@@ -80,11 +81,11 @@ export async function atender (req, res, ctx) {
   // --- la sonda, antes que cualquier control de acceso
   if (ruta === '/salud') {
     const e = ctx.estado()
-    const mudas = e.estaciones.filter(x => x.activa && x.muda === 'ON')
-    const vivo = mudas.length === 0
+    const sinSenal = e.nodo.situaciones.sin_senal
+    const vivo = sinSenal === 0
     res.writeHead(vivo ? 200 : 503, { 'Content-Type': 'text/plain; charset=utf-8' })
-    res.end((vivo ? 'ok' : 'no reportan: ' + mudas.map(x => x.id).join(', ')) +
-      ' · estaciones ' + e.estaciones.length + ' · envíos ' + e.nodo.recibidos + '\n')
+    res.end((vivo ? 'ok' : sinSenal + ' sin senal') +
+      ' - estaciones ' + e.nodo.estaciones + ' - envios ' + e.nodo.recibidos + String.fromCharCode(10))
     return true
   }
 
@@ -158,6 +159,25 @@ export async function atender (req, res, ctx) {
   // ---- lectura
   if (ruta === '/api/estado') return json(res, ctx.estado()), true
   if (ruta === '/api/recetas') return json(res, catalogo()), true
+
+  // El listado paginado. Sin esto, con 200 estaciones el panel pediria 4,6 MB cada 5 segundos.
+  if (ruta === '/api/estaciones') {
+    return json(res, ctx.estaciones({
+      pagina: url.searchParams.get('pagina'),
+      por: url.searchParams.get('por'),
+      buscar: url.searchParams.get('buscar') || '',
+      filtro: url.searchParams.get('filtro') || 'todas',
+      orden: url.searchParams.get('orden') || 'nombre',
+    })), true
+  }
+
+  // El detalle de UNA: aca si van los 67 campos y el historial.
+  if (ruta === '/api/estacion' && req.method === 'GET') {
+    const id = url.searchParams.get('id')
+    if (!id) return json(res, { error: 'falta el id' }, 400), true
+    const r = ctx.verEstacion(id)
+    return json(res, r, r.error ? 404 : 200), true
+  }
   if (ruta === '/api/config' && req.method === 'GET') {
     const vista = sinSecretos(config)
     // La lista de usuarios sólo la ve el administrador, y sin contraseñas ni cifradas.

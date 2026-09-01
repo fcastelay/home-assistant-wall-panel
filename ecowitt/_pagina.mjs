@@ -481,7 +481,7 @@ export const PAGINA = `<!doctype html>
 // llega al navegador convertida en otra cosa. Por eso los manejadores de los botones no van en
 // atributos onclick —que obligarían a escapar comillas— sino por delegación de eventos.
 
-var ESTADO = null, CONFIG = null, RECETAS = [], EDITANDO = null, SESION = null;
+var ESTADO = null, LISTA = null, DETALLE = null, CONFIG = null, RECETAS = [], EDITANDO = null, SESION = null;
 var ELEGIDA = null;   // qué estación se está mirando
 
 function pedir (ruta, opciones) {
@@ -665,110 +665,116 @@ function pintarLecturas (d, est) {
 }
 
 // ---------------------------------------------------------------- la tira de estaciones
+var COMO = { en_linea: '', demorada: 'esp', sin_senal: 'mal', apagada: 'off', sin_datos: 'off' };
+var DICE = { en_linea: '', demorada: 'demorada', sin_senal: 'sin senal',
+  apagada: 'apagada', sin_datos: 'sin datos' };
+
 function pintarTira (e) {
   var t = '';
   for (var i = 0; i < e.estaciones.length; i++) {
     var s = e.estaciones[i];
-    var clase = (s.id === ELEGIDA ? 'sel ' : '') + (!s.activa ? 'off' : (s.muda === 'ON' ? 'mal' : ''));
-    var estado = !s.activa ? 'apagada' : (s.muda === 'ON' ? 'no reporta' :
-      (s.recibidos ? hace(s.ultimo) : 'sin datos'));
+    var clase = (s.id === ELEGIDA ? 'sel ' : '') + (COMO[s.situacion] || '');
+    var estado = DICE[s.situacion] || hace(s.ultimo);
+    if (s.situacion === 'en_linea') estado = hace(s.ultimo);
     t += '<button class="' + clase + '" data-accion="elegir" data-id="' + esc(s.id) + '">' +
       '<span class="n">' + esc(s.nombre || s.id) + '</span>' +
       '<span class="e anot">' + estado + '</span></button>';
   }
   document.getElementById('tira').innerHTML = t;
-  // Con una sola estación la tira no aporta nada: es un botón que no lleva a ningún lado.
+  // Con una sola estacion la tira no aporta nada: es un boton que no lleva a ningun lado.
   ver('tira', e.estaciones.length > 1);
 }
 
-// ---------------------------------------------------------------- estado
-function pintarEstado (e) {
-  ESTADO = e;
-  var elegida = null;
-  for (var i = 0; i < e.estaciones.length; i++) if (e.estaciones[i].id === ELEGIDA) elegida = e.estaciones[i];
-  if (!elegida && e.estaciones.length) {
-    // Se elige sola la que reportó más recién: es la que uno quiere ver al abrir.
-    elegida = e.estaciones.slice().sort(function (a, b) {
-      return new Date(b.ultimo || 0) - new Date(a.ultimo || 0);
-    })[0];
-    ELEGIDA = elegida.id;
-  }
-
-  var caidos = 0, activos = 0;
-  for (var j = 0; j < e.destinos.length; j++) {
-    if (!e.destinos[j].activo) continue;
-    activos++;
-    if (e.destinos[j].problema) caidos++;
-  }
-  var mudas = e.estaciones.filter(function (s) { return s.activa && s.muda === 'ON'; }).length;
+// ---------------------------------------------------------------- el nodo (agregados)
+function pintarNodo (e) {
+  var n = e.nodo, s = n.situaciones || {};
   var glifo = function (mal, txt, val) {
     return '<span class="' + (mal ? 'mal' : '') + '"><b>' + txt + '</b><i>' + val + '</i></span>';
   };
+  var caidos = 0, activos = 0;
+  for (var i = 0; i < e.destinos.length; i++) {
+    if (!e.destinos[i].activo) continue;
+    activos++;
+    if (e.destinos[i].problema) caidos++;
+  }
   document.getElementById('leyenda').innerHTML =
-    glifo(mudas > 0, 'Estaciones', e.nodo.activas + ' activas' + (mudas ? ' · ' + mudas + ' sin reportar' : '')) +
+    glifo(s.sin_senal > 0, 'Estaciones', n.activas + ' activas' +
+      (s.sin_senal ? ' . ' + s.sin_senal + ' sin senal' : '') +
+      (s.demorada ? ' . ' + s.demorada + ' demoradas' : '')) +
     glifo(!e.mqtt.conectado, 'MQTT', e.mqtt.conectado ? 'conectado' : (e.mqtt.motivo || 'sin conectar')) +
-    glifo(caidos > 0, 'Destinos', caidos ? caidos + ' con problemas' : activos + ' al día');
+    glifo(caidos > 0, 'Destinos', caidos ? caidos + ' con problemas' : activos + ' al dia') +
+    glifo(false, 'Hoy', (n.paquetes_hoy || 0) + ' paquetes');
 
-  pintarTira(e);
+  document.getElementById('resumen-destinos').textContent =
+    e.destinos.length ? e.destinos.length + ' servicios' : '';
 
+  // UN RENGLON POR SERVICIO, no por par destino x estacion. Con 200 estaciones y un comodin
+  // serian 200 filas identicas; lo que interesa aca es si al servicio le esta llegando.
+  var t = '';
+  for (var m = 0; m < e.destinos.length; m++) {
+    var d = e.destinos[m];
+    var g = '<span class="glifo g-off">.</span>', clase = '';
+    if (d.activo && d.problema) { g = '<span class="glifo g-mal">x</span>'; clase = 'txt-mal'; }
+    else if (d.activo && d.esperando === d.estaciones) { g = '<span class="glifo g-esp">o</span>'; clase = 'txt-esp'; }
+    else if (d.activo && d.ultimo_ok) { g = '<span class="glifo g-ok">*</span>'; }
+    else if (d.activo) { g = '<span class="glifo g-ok">o</span>'; }
+    t += '<tr><td>' + g + esc(d.nombre) + '</td>' +
+      '<td>' + (d.comodin ? 'todas' : '') + ' ' + d.estaciones + '</td>' +
+      '<td>' + esc(d.servicio) +
+        (d.verificado === false ? ' <span class="sin-ver anot">sin verificar</span>' : '') + '</td>' +
+      '<td class="dato">' + (d.ultimo_ok ? hace(d.ultimo_ok) : '--') + '</td>' +
+      '<td class="' + clase + '">' + (d.problema ? d.problema + ' con problemas' : 'al dia') + '</td>' +
+      '<td class="num dato">' + (d.latencia_media !== null ? d.latencia_media + ' ms' : '--') + '</td>' +
+      '<td class="num dato">' + (d.tasa24h !== null ? d.tasa24h + ' %' : '--') + '</td>' +
+      '<td class="num"><button class="acc" data-accion="probar" data-nombre="' + esc(d.nombre) +
+        '" data-estacion="' + esc(ELEGIDA || '') + '">Probar</button></td></tr>';
+  }
+  document.getElementById('tabla-destinos').innerHTML = t ||
+    '<tr><td colspan="8"><div class="vacio">Ningun destino configurado. El puente archiva igual: ' +
+    'cada envio se guarda en disco antes de repartirse.</div></td></tr>';
+
+  var l = '';
+  for (var k = 0; k < e.log.length; k++) {
+    l += '<div><span class="h">' + hhmm(e.log[k].t) + '</span><span class="' + e.log[k].nivel + '">' +
+      esc(e.log[k].texto) + '</span></div>';
+  }
+  document.getElementById('log').innerHTML = l || '<div class="vacio">Sin eventos.</div>';
+}
+
+// ---------------------------------------------------------------- la estacion elegida
+function pintarDetalle (d) {
   var barra = document.getElementById('vence');
-  if (elegida && elegida.ultimo) {
-    var pasado = (Date.now() - new Date(elegida.ultimo).getTime()) / 1000;
-    var umbral = Math.max(3 * ((elegida.datos.intervalo || 60)), 600);
+  if (!d) {
+    document.getElementById('cuando').textContent = 'sin ninguna estacion';
+    dibujarPlot({});
+    pintarLecturas({}, null);
+    dibujar([]);
+    barra.style.width = '0';
+    return;
+  }
+  document.getElementById('cuando').textContent =
+    (d.nombre || d.id) + (d.ultimo
+      ? ' . ' + hhmm(d.ultimo) + ' . ' + hace(d.ultimo) + ' . ' + d.recibidos + ' envios . ' +
+        d.paquetes_hoy + ' hoy'
+      : ' . sin observacion');
+
+  if (d.ultimo) {
+    var pasado = (Date.now() - new Date(d.ultimo).getTime()) / 1000;
+    var umbral = Math.max(3 * ((d.datos.intervalo || 60)), 600);
     var p = Math.min(1, pasado / umbral);
     barra.style.width = (p * 100).toFixed(1) + '%';
     barra.style.background = p > 0.99 ? 'var(--calor)' : (p > 0.66 ? 'var(--sodio)' : 'var(--frio)');
   } else { barra.style.width = '0'; }
 
-  document.getElementById('cuando').textContent = elegida
-    ? (elegida.nombre || elegida.id) + (elegida.ultimo
-        ? ' · ' + hhmm(elegida.ultimo) + ' · ' + hace(elegida.ultimo) + ' · ' + elegida.recibidos + ' envíos'
-        : ' · sin observación')
-    : 'sin ninguna estación';
-
-  dibujarPlot(elegida ? elegida.datos : {});
-  pintarLecturas(elegida ? elegida.datos : {}, elegida);
-  dibujar(elegida ? elegida.historial : []);
-
-  document.getElementById('resumen-destinos').textContent =
-    e.destinos.length ? e.destinos.length + ' envíos configurados' : '';
-
-  var t = '';
-  for (var m = 0; m < e.destinos.length; m++) {
-    var d = e.destinos[m];
-    var g = '<span class="glifo g-off">·</span>', clase = '';
-    if (d.activo && d.problema) { g = '<span class="glifo g-mal">✕</span>'; clase = 'txt-mal'; }
-    else if (d.activo && d.esperando) { g = '<span class="glifo g-esp">◷</span>'; clase = 'txt-esp'; }
-    else if (d.activo && d.ultimo_ok) { g = '<span class="glifo g-ok">●</span>'; }
-    else if (d.activo) { g = '<span class="glifo g-ok">○</span>'; }
-    t += '<tr><td>' + g + esc(d.nombre) + '</td>' +
-      '<td>' + esc(d.estacion_nombre) + (d.comodin ? ' <span class="sin-ver anot">comodín</span>' : '') + '</td>' +
-      '<td>' + esc(d.servicio) +
-        (d.verificado === false ? ' <span class="sin-ver anot">sin verificar</span>' : '') + '</td>' +
-      '<td class="dato">' + (d.ultimo_intento ? hhmm(d.ultimo_intento) : '—') + '</td>' +
-      '<td class="' + clase + '">' + esc(d.detalle || (d.activo ? 'sin enviar' : 'apagado')) + '</td>' +
-      '<td class="num dato">' + (d.latencia ? d.latencia + ' ms' : '—') + '</td>' +
-      '<td class="num dato">' + (d.enviados || 0) + ' / ' + (d.fallidos || 0) + '</td>' +
-      '<td class="num"><button class="acc" data-accion="probar" data-nombre="' + esc(d.nombre) +
-        '" data-estacion="' + esc(d.estacion) + '">Probar</button></td></tr>';
-  }
-  document.getElementById('tabla-destinos').innerHTML = t ||
-    '<tr><td colspan="8"><div class="vacio">Ningún destino configurado. El puente archiva igual: ' +
-    'cada envío se guarda en disco antes de repartirse.</div></td></tr>';
-
-  var l = '';
-  for (var n = 0; n < e.log.length; n++) {
-    l += '<div><span class="h">' + hhmm(e.log[n].t) + '</span><span class="' + e.log[n].nivel + '">' +
-      esc(e.log[n].texto) + '</span></div>';
-  }
-  document.getElementById('log').innerHTML = l || '<div class="vacio">Sin eventos.</div>';
-
-  pintarEstaciones(e);
+  dibujarPlot(d.datos);
+  pintarLecturas(d.datos, d);
+  dibujar(d.historial || []);
 }
 
 function pintarEstaciones (e) {
-  document.getElementById('cuenta-estaciones').textContent =
-    e.estaciones.length ? e.estaciones.length + ' descubiertas' : '';
+  document.getElementById('cuenta-estaciones').textContent = e.total
+    ? e.total + ' descubiertas' + (e.paginas > 1 ? ' . mostrando ' + e.estaciones.length : '')
+    : '';
   var t = '';
   for (var i = 0; i < e.estaciones.length; i++) {
     var s = e.estaciones[i];
@@ -777,9 +783,10 @@ function pintarEstaciones (e) {
       '<input data-accion="nombre" data-id="' + esc(s.id) + '" value="' + esc(s.nombre) +
       '" placeholder="sin nombre" style="width:auto;display:inline-block"></td>' +
       '<td>' + esc(s.modelo || '—') + '</td>' +
-      '<td class="dato">' + esc(s.passkey || s.id) + '</td>' +
+      '<td class="dato">' + esc(s.id) + '</td>' +
       '<td class="num dato">' + s.recibidos + '</td>' +
-      '<td>' + (s.ultimo ? hace(s.ultimo) : 'nunca') + '</td>' +
+      '<td>' + (s.ultimo ? hace(s.ultimo) : 'nunca') +
+        (s.situacion !== 'en_linea' && DICE[s.situacion] ? ' . ' + DICE[s.situacion] : '') + '</td>' +
       '<td class="num">' +
       '<button class="acc" data-accion="est-alternar" data-id="' + esc(s.id) + '" data-activa="' +
         (s.activa ? '1' : '0') + '">' + (s.activa ? 'Apagar' : 'Encender') + '</button>' +
@@ -897,10 +904,29 @@ document.addEventListener('change', function (ev) {
   }
 });
 
+// TRES PEDIDOS, NO UNO, y ese es todo el punto de haber partido la API.
+//
+//   /api/estado      agregados. No crece con la cantidad de estaciones.
+//   /api/estaciones  una pagina del listado, sin los 67 campos ni el historial.
+//   /api/estacion    los 67 campos y el historial, SOLO de la que se esta mirando.
+//
+// Antes esto era un solo pedido que traia todo: con 200 estaciones eran 4,6 MB cada 5 segundos.
 function refrescar () {
   return pedir('/api/estado').then(function (r) {
     if (r.codigo === 401) { location.reload(); return; }
-    pintarEstado(r.cuerpo);
+    ESTADO = r.cuerpo;
+    pintarNodo(ESTADO);
+    return pedir('/api/estaciones?por=60&orden=ultimo');
+  }).then(function (r) {
+    if (!r || !r.cuerpo || !r.cuerpo.estaciones) return;
+    LISTA = r.cuerpo;
+    pintarTira(LISTA);
+    pintarEstaciones(LISTA);
+    if (!ELEGIDA && LISTA.estaciones.length) ELEGIDA = LISTA.estaciones[0].id;
+    return ELEGIDA ? pedir('/api/estacion?id=' + encodeURIComponent(ELEGIDA)) : null;
+  }).then(function (r) {
+    DETALLE = (r && r.cuerpo && !r.cuerpo.error) ? r.cuerpo : null;
+    pintarDetalle(DETALLE);
   }).catch(function () {});
 }
 
@@ -1095,10 +1121,7 @@ var redibujo = null;
 window.addEventListener('resize', function () {
   clearTimeout(redibujo);
   redibujo = setTimeout(function () {
-    if (!ESTADO) return;
-    for (var i = 0; i < ESTADO.estaciones.length; i++) {
-      if (ESTADO.estaciones[i].id === ELEGIDA) dibujar(ESTADO.estaciones[i].historial);
-    }
+    if (DETALLE) dibujar(DETALLE.historial || []);
   }, 150);
 });
 

@@ -178,9 +178,26 @@ const estacionesActivas = () => Object.values(CONFIG.estaciones).filter(e => e.a
 /** Por estación: cuántos envíos entraron, cuándo, y la última lectura. */
 const EST = new Map()
 const estadoEstacion = (id) => {
-  if (!EST.has(id)) EST.set(id, { recibidos: 0, ultimo: null, campos: {}, crudo: '', anunciado: '' })
+  if (!EST.has(id)) {
+    EST.set(id, {
+      recibidos: 0, ultimo: null, campos: {}, crudo: '', anunciado: '',
+      // Los paquetes del día llevan de qué día son: al cruzar la medianoche se reinician solos.
+      // Se guarda el día LOCAL, que es el que uno quiere leer, igual que el archivo crudo.
+      hoy: { dia: '', cuenta: 0 },
+    })
+  }
   return EST.get(id)
 }
+
+/** El día local, como AAAA-MM-DD. Sirve para saber cuándo reiniciar los contadores diarios. */
+const diaLocal = () => {
+  const d = new Date()
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0')
+}
+
+const ARRANQUE = Date.now()
+const VERSION = '2.0'
 
 /**
  * Por destino Y POR ESTACION, y eso importa: un destino comodín que recibe de tres estaciones
@@ -188,7 +205,46 @@ const estadoEstacion = (id) => {
  * quedaría siempre sin mandar porque la primera acaba de gastar el turno.
  */
 const DEST = new Map()
-const claveDestino = (nombre, idEstacion) => nombre + ' ' + idEstacion
+
+/**
+ * La ventana de 24 horas de un destino: 24 baldes de una hora.
+ *
+ * SE USAN BALDES Y NO UNA LISTA DE ENVIOS porque una lista crece con el tráfico: con 200
+ * estaciones mandando cada minuto son 288.000 entradas por día y por destino. Veinticuatro
+ * baldes ocupan lo mismo con una estación que con doscientas.
+ *
+ * Cada balde guarda cuántos envíos hubo, cuántos salieron bien y cuánto sumaron de latencia. La
+ * hora se calcula con el reloj: al dar la vuelta, el balde que se reusa se vacía primero.
+ */
+const anotarVentana = (estado, ok, ms) => {
+  if (!estado.ventana) estado.ventana = Array.from({ length: 24 }, () => ({ h: -1, n: 0, ok: 0, ms: 0 }))
+  const hora = Math.floor(Date.now() / 3600000)
+  const b = estado.ventana[hora % 24]
+  if (b.h !== hora) { b.h = hora; b.n = 0; b.ok = 0; b.ms = 0 }
+  b.n++
+  if (ok) b.ok++
+  if (ms) b.ms += ms
+}
+
+/** Lo que dice esa ventana: tasa de aciertos y latencia media de las últimas 24 h. */
+const resumenVentana = (estado) => {
+  const hora = Math.floor(Date.now() / 3600000)
+  let n = 0, ok = 0, ms = 0
+  for (const b of (estado.ventana || [])) {
+    if (b.h < 0 || hora - b.h >= 24) continue
+    n += b.n; ok += b.ok; ms += b.ms
+  }
+  return {
+    envios24h: n,
+    tasa24h: n ? Math.round((ok / n) * 1000) / 10 : null,
+    latencia_media: n ? Math.round(ms / n) : null,
+  }
+}
+// El separador es un NUL escrito como escape, no como byte literal. Sirve porque no puede
+// aparecer ni en el nombre de un destino ni en el id de una estacion, asi que dos pares
+// distintos nunca dan la misma clave. Y va como \u0000 y no crudo: un byte de control
+// invisible en el codigo hace que grep trate el archivo como binario y deje de buscar en el.
+const claveDestino = (nombre, idEstacion) => nombre + '\u0000' + idEstacion
 const estadoDestino = (nombre, idEstacion) => {
   const k = claveDestino(nombre, idEstacion)
   if (!DEST.has(k)) DEST.set(k, {})
@@ -305,6 +361,30 @@ function anunciarTodo (motivo) {
   anotar('info', n + ' entidades anunciadas a Home Assistant (' + motivo + ')')
 }
 
+/**
+ * En qué situación está una estación. Los umbrales son los del pliego de diseño:
+ *
+ *   en_linea    reportó hace menos de 2 intervalos
+ *   demorada    entre 2 intervalos y 30 minutos
+ *   sin_senal   más de 30 minutos
+ *   apagada     no se reparte ni se publica, aunque siga archivando
+ *   sin_datos   nunca reportó
+ *
+ * SON CUATRO ESTADOS Y NO DOS, y la diferencia importa: "demorada" es un envío que se perdió y
+ * pasa todos los días; "sin señal" es la falla que hay que mirar. Tratarlas igual hace que el
+ * panel avise tanto que uno deja de mirarlo.
+ */
+function situacion (est) {
+  if (!est.activa) return 'apagada'
+  const e = estadoEstacion(est.id)
+  if (!e.ultimo) return 'sin_datos'
+  const pasado = Date.now() - new Date(e.ultimo).getTime()
+  const intervalo = (e.campos.intervalo || 60) * 1000
+  if (pasado < 2 * intervalo) return 'en_linea'
+  if (pasado < 1800000) return 'demorada'
+  return 'sin_senal'
+}
+
 /** ¿Esta estación dejó de reportar? */
 function estaMuda (est) {
   const e = estadoEstacion(est.id)
@@ -374,9 +454,14 @@ async function repartir (est, crudo, campos) {
   // version usaba la cadena '*' para ellos y eso les daba UN SOLO reloj compartido: la segunda
   // estacion se quedaba sin mandar porque la primera acababa de gastar el turno. Lo encontro la
   // prueba, contra un comentario de este mismo archivo que ya advertia el problema.
-  const r = await Promise.all(lista.map(async d => ({
-    d, res: await enviarA(d, crudo, campos, estadoDestino(d.nombre, est.id)),
-  })))
+  const r = await Promise.all(lista.map(async d => {
+    const s = estadoDestino(d.nombre, est.id)
+    const res = await enviarA(d, crudo, campos, s)
+    // Un salteado por intervalo no cuenta: no se intentó nada, y meterlo en la ventana bajaría
+    // la tasa de aciertos de un destino que está funcionando perfecto.
+    if (!res.saltado) anotarVentana(s, res.ok, res.latencia)
+    return { d, res }
+  }))
 
   // UN DESTINO SALTADO POR SU INTERVALO NO ES UN FALLO: se deja el estado anterior. Si se
   // marcara caído cada vez que le toca esperar, el que sube cada 15 minutos figuraría en
@@ -391,72 +476,178 @@ async function repartir (est, crudo, campos) {
 
 // ---------------------------------------------------------------- lo que usa el panel
 
-/** Una fila por destino Y POR ESTACION que le toca. Un comodín con tres estaciones son tres. */
-function filasDestino () {
-  const filas = []
-  for (const d of CONFIG.destinos) {
-    const receta = RECETAS[d.receta]
-    const base = {
-      nombre: d.nombre,
-      servicio: receta ? receta.nombre : (d.tipo || 'ecowitt'),
-      verificado: receta ? receta.verificado : true,
-      comodin: d.estacion === '*',
-      activo: d.activo !== false,
-    }
-    const donde = estacionesDe(d).map(id =>
-      ({ id, nombre: (CONFIG.estaciones[id] || {}).nombre || id }))
-    // Un destino comodín sin ninguna estación todavía no tiene filas. Se muestra igual, con la
-    // estación en blanco: si no, un destino recién creado desaparecería del panel.
-    if (!donde.length) donde.push({ id: '', nombre: d.estacion === '*' ? 'ninguna estación todavía' : d.estacion })
-    for (const w of donde) {
-      const s = estadoDestino(d.nombre, w.id)
-      const minimo = Number(d.intervalo_min || 0) * 1000
-      filas.push({
-        ...base,
-        estacion: w.id, estacion_nombre: w.nombre,
-        ultimo_intento: s.ultimoIntento ? new Date(s.ultimoIntento).toISOString() : null,
-        ultimo_ok: s.ultimoOk ? new Date(s.ultimoOk).toISOString() : null,
-        detalle: s.ultimoDetalle || null,
-        latencia: s.latencia ?? null,
-        enviados: s.enviados || 0,
-        fallidos: s.fallidos || 0,
-        esperando: !!(minimo && s.ultimoIntento && (Date.now() - s.ultimoIntento) < minimo),
-        problema: !!(s.ultimoDetalle && s.ultimoDetalle !== 'ok'),
-      })
-    }
-  }
-  return filas
-}
-
 const contexto = {
+  /**
+   * SOLO AGREGADOS. Es lo que el panel pide cada 5 segundos, así que **no puede crecer con la
+   * cantidad de estaciones**.
+   *
+   * La primera versión devolvía todo: cada estación con sus 67 campos y sus 240 puntos de
+   * historial. Medido el 01/09/2026 con 200 estaciones: **4,6 MB por pedido, cada 5 segundos**
+   * —55 MB por minuto—. Con una estación no se nota; con doscientas el panel es una manguera.
+   *
+   * El listado vive en `estaciones()`, paginado, y el detalle de una en `verEstacion()`.
+   */
   estado () {
-    const estaciones = Object.values(CONFIG.estaciones).map(est => {
+    const todas = Object.values(CONFIG.estaciones)
+    const cuenta = { en_linea: 0, demorada: 0, sin_senal: 0, apagada: 0, sin_datos: 0 }
+    let paquetesHoy = 0
+    const dia = diaLocal()
+    for (const est of todas) {
+      cuenta[situacion(est)]++
       const e = estadoEstacion(est.id)
+      if (e.hoy.dia === dia) paquetesHoy += e.hoy.cuenta
+    }
+
+    // Un renglón por destino, no por par destino × estación: acá interesa el servicio, no cada
+    // combinación. El detalle por estación está en el listado y en el detalle.
+    const destinos = CONFIG.destinos.map(d => {
+      const receta = RECETAS[d.receta]
+      const ids = estacionesDe(d)
+      let problema = 0, esperando = 0, n = 0, ok = 0, ms = 0, ultimoOk = null
+      for (const id of ids) {
+        const st = estadoDestino(d.nombre, id)
+        const v = resumenVentana(st)
+        if (st.ultimoDetalle && st.ultimoDetalle !== 'ok') problema++
+        const minimo = Number(d.intervalo_min || 0) * 1000
+        if (minimo && st.ultimoIntento && (Date.now() - st.ultimoIntento) < minimo) esperando++
+        n += v.envios24h
+        if (v.tasa24h !== null) ok += v.envios24h * v.tasa24h / 100
+        if (v.latencia_media !== null) ms += v.latencia_media * v.envios24h
+        if (st.ultimoOk && (!ultimoOk || st.ultimoOk > ultimoOk)) ultimoOk = st.ultimoOk
+      }
       return {
-        id: est.id, nombre: est.nombre, modelo: est.modelo, activa: est.activa,
-        passkey: est.passkey ? '…' + String(est.passkey).slice(-4) : '',
-        visto_primera: est.visto_primera, visto_ultima: est.visto_ultima,
-        recibidos: e.recibidos, ultimo: e.ultimo,
-        muda: estaMuda(est) ? 'ON' : 'OFF',
-        datos: e.campos,
-        historial: verLecturas(est.id).slice(-240),
+        nombre: d.nombre,
+        servicio: receta ? receta.nombre : (d.tipo || 'ecowitt'),
+        verificado: receta ? receta.verificado : true,
+        activo: d.activo !== false,
+        comodin: d.estacion === '*',
+        estaciones: ids.length,
+        problema, esperando,
+        envios24h: n,
+        tasa24h: n ? Math.round((ok / n) * 1000) / 10 : null,
+        latencia_media: n ? Math.round(ms / n) : null,
+        ultimo_ok: ultimoOk ? new Date(ultimoOk).toISOString() : null,
       }
     })
-    const filas = filasDestino()
+
+    const mem = process.memoryUsage()
     return {
       nodo: {
         nombre: CONFIG.nodo.nombre,
         recibidos: recibidosNodo,
-        estaciones: estaciones.length,
-        activas: estaciones.filter(e => e.activa).length,
+        paquetes_hoy: paquetesHoy,
+        estaciones: todas.length,
+        activas: todas.length - cuenta.apagada,
+        situaciones: cuenta,
         seco: SECO,
-        algo_mal: (estaciones.some(e => e.activa && e.muda === 'ON') ||
-                   filas.some(f => f.activo && f.problema)) ? 'ON' : 'OFF',
+        algo_mal: (cuenta.sin_senal || destinos.some(x => x.activo && x.problema)) ? 'ON' : 'OFF',
+        // Lo que el pliego de diseño muestra en el panel de Sistema.
+        uptime_s: Math.round((Date.now() - ARRANQUE) / 1000),
+        memoria_mb: Math.round(mem.rss / 1048576),
+        version: VERSION,
       },
       mqtt: { conectado: !!mqtt, motivo: SIN_MQTT ? 'desactivado' : mqttMotivo },
-      estaciones,
-      destinos: filas,
-      log: verEventos(60),
+      destinos,
+      log: verEventos(40),
+    }
+  },
+
+  /**
+   * Una página del listado. Sólo lo que muestra la tabla — sin los 67 campos y sin historial.
+   *
+   * SE FILTRA, SE ORDENA Y SE PAGINA ACA, no en el navegador: mandar 200 estaciones para que el
+   * navegador muestre 10 es exactamente el problema que este endpoint viene a resolver.
+   */
+  estaciones ({ pagina = 1, por = 20, buscar = '', filtro = 'todas', orden = 'nombre' } = {}) {
+    const dia = diaLocal()
+    let filas = Object.values(CONFIG.estaciones).map(est => {
+      const e = estadoEstacion(est.id)
+      return {
+        id: est.id,
+        nombre: est.nombre,
+        modelo: est.modelo,
+        activa: est.activa,
+        situacion: situacion(est),
+        ultimo: e.ultimo,
+        recibidos: e.recibidos,
+        paquetes_hoy: e.hoy.dia === dia ? e.hoy.cuenta : 0,
+        temp: e.campos.temp_ext ?? null,
+        viento: e.campos.viento ?? null,
+        viento_dir: e.campos.viento_dir ?? null,
+        lluvia_tasa: e.campos.lluvia_tasa ?? null,
+        destinos: destinosDe(est.id).length,
+      }
+    })
+
+    const cuenta = { todas: filas.length }
+    for (const f of filas) cuenta[f.situacion] = (cuenta[f.situacion] || 0) + 1
+
+    const q = String(buscar).trim().toLowerCase()
+    if (q) {
+      filas = filas.filter(f => f.id.includes(q) ||
+        (f.nombre || '').toLowerCase().includes(q) ||
+        (f.modelo || '').toLowerCase().includes(q))
+    }
+    if (filtro && filtro !== 'todas') filas = filas.filter(f => f.situacion === filtro)
+
+    const cmp = {
+      nombre: (a, b) => (a.nombre || a.id).localeCompare(b.nombre || b.id),
+      ultimo: (a, b) => new Date(b.ultimo || 0) - new Date(a.ultimo || 0),
+      temp: (a, b) => (b.temp ?? -999) - (a.temp ?? -999),
+      paquetes: (a, b) => b.paquetes_hoy - a.paquetes_hoy,
+    }
+    filas.sort(cmp[orden] || cmp.nombre)
+
+    const total = filas.length
+    const porPagina = Math.min(200, Math.max(1, Number(por) || 20))
+    const paginas = Math.max(1, Math.ceil(total / porPagina))
+    const p = Math.min(paginas, Math.max(1, Number(pagina) || 1))
+    return {
+      total, pagina: p, por: porPagina, paginas, cuenta,
+      estaciones: filas.slice((p - 1) * porPagina, p * porPagina),
+    }
+  },
+
+  /** El detalle de una: acá sí van los 67 campos, el historial y sus destinos. */
+  verEstacion (id) {
+    const est = CONFIG.estaciones[id]
+    if (!est) return { error: 'no existe la estacion "' + id + '"' }
+    const e = estadoEstacion(id)
+    return {
+      id: est.id,
+      nombre: est.nombre,
+      modelo: est.modelo,
+      activa: est.activa,
+      passkey: est.passkey ? '...' + String(est.passkey).slice(-4) : '',
+      visto_primera: est.visto_primera,
+      visto_ultima: est.visto_ultima,
+      situacion: situacion(est),
+      recibidos: e.recibidos,
+      paquetes_hoy: e.hoy.dia === diaLocal() ? e.hoy.cuenta : 0,
+      ultimo: e.ultimo,
+      datos: e.campos,
+      historial: verLecturas(id).slice(-240),
+      destinos: destinosDe(id).map(d => {
+        const st = estadoDestino(d.nombre, id)
+        const receta = RECETAS[d.receta]
+        const minimo = Number(d.intervalo_min || 0) * 1000
+        return {
+          nombre: d.nombre,
+          servicio: receta ? receta.nombre : (d.tipo || 'ecowitt'),
+          verificado: receta ? receta.verificado : true,
+          comodin: d.estacion === '*',
+          activo: d.activo !== false,
+          ultimo_intento: st.ultimoIntento ? new Date(st.ultimoIntento).toISOString() : null,
+          ultimo_ok: st.ultimoOk ? new Date(st.ultimoOk).toISOString() : null,
+          detalle: st.ultimoDetalle || null,
+          latencia: st.latencia ?? null,
+          enviados: st.enviados || 0,
+          fallidos: st.fallidos || 0,
+          esperando: !!(minimo && st.ultimoIntento && (Date.now() - st.ultimoIntento) < minimo),
+          problema: !!(st.ultimoDetalle && st.ultimoDetalle !== 'ok'),
+          ...resumenVentana(st),
+        }
+      }),
     }
   },
 
@@ -737,6 +928,9 @@ const servidor = http.createServer(async (req, res) => {
     recibidosNodo++
     const e = estadoEstacion(est.id)
     e.recibidos++
+    const dia = diaLocal()
+    if (e.hoy.dia !== dia) { e.hoy.dia = dia; e.hoy.cuenta = 0 }
+    e.hoy.cuenta++
     e.ultimo = new Date().toISOString()
     e.campos = campos
     e.crudo = cuerpo
