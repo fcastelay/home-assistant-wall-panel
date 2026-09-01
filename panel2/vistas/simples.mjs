@@ -47,30 +47,78 @@ export function vistaAmbientes (vieja) {
 
 // --------------------------------------------------------------- Cámaras
 
-/** Las camaras agrupadas por zona, como estaban. */
-export function vistaCamaras (vieja) {
-  const grupos = []
-  for (const s of vieja.sections || []) {
-    const titulo = (s.cards || []).find(c => c.type === 'heading')
-    const camaras = (s.cards || []).filter(c => c.type === 'picture-entity')
-    if (camaras.length) grupos.push({ titulo: titulo ? titulo.heading : '', camaras })
-  }
-
-  const secciones = grupos.map(g => ({
-    type: 'grid',
-    column_span: 2,
-    cards: [
-      rotulo(g.titulo),
-      {
-        // Siempre 2 columnas: con 3 quedaban chiquitas y sobraba media pantalla.
-        type: 'grid',
-        columns: 2,
-        square: false,
-        grid_options: { columns: 'full' },
-        cards: g.camaras.map(c => restilarCamara({ ...c, aspect_ratio: '16:10' })),
-      },
+// LA LISTA ES EXPLICITA, y dejo de derivarla del panel viejo. Cambio del 31/08/2026.
+//
+// Antes se tomaban las camaras de las secciones del tablero anterior y se parcheaban. Con
+// cuatro correcciones encima —dos que salen, dos que entran, y los nombres— el codigo decia
+// una cosa y la pantalla mostraba otra. Declararlas es mas corto y no miente.
+//
+// QUE CAMARA ENTRA Y POR QUE, medido con `scripts/ha/auditar-camaras.mjs`:
+//
+//     patio_nest, cocina_nest, portero_nest   nest    NO dan foto fija, si video     -> live
+//     patio, czha_..._lavadero                ezviz   foto de 28 y 26 KB             -> sirven
+//
+// QUE QUEDA AFUERA, y ninguna es capricho:
+//
+//     salon, puerta_principal, cocina,
+//     habitacion                              canary  HTTP 500: ni foto ni video
+//     terraza_2, sausalito_garage             ezviz   HTTP 500, y ademas son de otra casa
+//
+// **Las Canary fallan en silencio**: la entidad dice `recording`, sin `unavailable` y sin una
+// linea en el log. Parecen sanas y dibujan un rectangulo gris. Mientras esa integracion no se
+// arregle, no van: un hueco gris en la pared es peor que una camara menos.
+//
+// Si alguna vuelve, correr el auditor y agregarla aca.
+const GRUPOS = [
+  {
+    titulo: 'Afuera',
+    // Cuatro entran en una grilla de 2x2 exacta. Es la razon de que Portero este aca y no en
+    // un grupo "Accesos" propio: un grupo de uno deja la mitad de la fila vacia.
+    camaras: [
+      ['camera.patio_nest', 'Patio'],
+      ['camera.patio', 'Patio Casa'],
+      ['camera.portero_nest', 'Portero'],
+      // "Galeria" y no "Camara Galeria Lavadero": el nombre largo no entra en media columna
+      // y se corta con puntos suspensivos.
+      ['camera.czha_ara_galerqian_lavadero', 'Galería'],
     ],
-  }))
+  },
+  {
+    titulo: 'Adentro',
+    // Una sola: va a ancho completo y mas panoramica. Dejarla en media columna con el hueco
+    // al lado se lee como si faltara una camara.
+    camaras: [['camera.cocina_nest', 'Cocina']],
+  },
+]
+
+const camara = (ent, nombre) => ({
+  type: 'picture-entity',
+  entity: ent,
+  name: nombre,
+  camera_view: 'auto',   // `restilarCamara` lo pasa a `live` en las que solo transmiten
+  show_state: false,
+})
+
+/** Las camaras que de verdad muestran algo, agrupadas por zona. */
+export function vistaCamaras () {
+  const secciones = GRUPOS.map(g => {
+    const solaUna = g.camaras.length === 1
+    return {
+      type: 'grid',
+      column_span: 2,
+      cards: [
+        rotulo(g.titulo),
+        {
+          type: 'grid',
+          columns: solaUna ? 1 : 2,
+          square: false,
+          grid_options: { columns: 'full' },
+          cards: g.camaras.map(([e, n]) =>
+            restilarCamara({ ...camara(e, n), aspect_ratio: solaUna ? '16:9' : '16:10' })),
+        },
+      ],
+    }
+  })
 
   return {
     ...base('Cámaras', 'camaras', 'mdi:cctv'),

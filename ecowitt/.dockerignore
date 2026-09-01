@@ -1,0 +1,19 @@
+# Lo que NO tiene que entrar en la imagen.
+#
+# El Dockerfile hace COPY *.mjs, así que en principio nada de esto entraría igual. Pero el
+# contexto de construcción se manda entero al motor de Docker antes de que el COPY elija, y ahí
+# es donde importa: sin este archivo, la clave del broker MQTT y las credenciales de todos los
+# destinos viajan al demonio en cada build, y en una imagen que después se comparte o se sube a
+# un registro quedan adentro.
+#
+# La regla es simple: la imagen lleva programa, el volumen lleva datos. Nunca al revés.
+
+datos/
+mqtt.env
+*.migrado
+*.roto-*
+config.json
+LEEME.md
+build/
+node_modules/
+.git/

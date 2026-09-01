@@ -1,0 +1,57 @@
+# Puente Ecowitt: recibe los datos de la estación y los reparte.
+#
+# En el NAS se levanta desde Container Manager -> Proyecto -> Crear, apuntando a esta carpeta.
+# En cualquier otro lado: docker compose up -d
+#
+# NO LLEVA network_mode: host, a diferencia de la receptora de la alarma. La estación manda a un
+# puerto TCP normal —no hay descubrimiento ni broadcast— así que alcanza con publicarlo, y es
+# bastante menos invasivo que compartir la red entera del NAS.
+
+services:
+  ecowitt:
+    build: .
+    image: ecowitt-puente:local
+    container_name: ecowitt-puente
+    restart: always
+
+    ports:
+      # Un solo puerto: por acá entra la estación y por acá se abre el panel.
+      - "8088:8088"
+
+    volumes:
+      # LO UNICO PERSISTENTE. Adentro van tres cosas que no se pueden perder:
+      #   config.json          los destinos y sus credenciales
+      #   AAAAMMDD.txt         el archivo crudo, un día por archivo
+      #   respaldos/           las versiones anteriores de config.json
+      # El código va dentro de la imagen, no montado: el contenedor no tiene por qué poder
+      # reescribir su propio programa.
+      - ./datos:/app/datos
+
+    environment:
+      - PUERTO=8088
+      - ARCHIVO=/app/datos
+      # Zona horaria: sin esto el log del contenedor sale en UTC y hay que restar tres horas
+      # mentalmente cada vez que uno busca a qué hora pasó algo.
+      - TZ=America/Argentina/Buenos_Aires
+
+      # CLAVE DEL PANEL (opcional). Si se define, el panel y su API la piden.
+      #
+      # Sin ella el panel queda abierto a quien esté en la red de casa. Es aceptable en una LAN
+      # y es lo que hace que sirva para mirarlo rápido; ponerla es razonable si la red tiene
+      # invitados. **Esto no va nunca expuesto a internet**: el protocolo Ecowitt no tiene
+      # autenticación y el PASSKEY viaja en claro.
+      # - PANEL_CLAVE=algo-largo
+
+    # Las credenciales del broker MQTT. Se pueden cargar de tres maneras, y gana la primera:
+    #   1. desde el panel web (queda en config.json)
+    #   2. desde este archivo, que el despliegue genera con la clave de HA sin imprimirla
+    #   3. desde la configuración de Home Assistant, si se monta su /config
+    env_file:
+      - ./mqtt.env
+
+    logging:
+      driver: json-file
+      options:
+        # Un envío por minuto, para siempre, termina llenando el volumen del NAS.
+        max-size: "10m"
+        max-file: "3"

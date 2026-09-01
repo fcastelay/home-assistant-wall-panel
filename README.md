@@ -25,6 +25,26 @@ calle y las caras de quienes viven ahí. Todo lo demás es el panel real.
 
 ---
 
+## Además: un puente para estaciones Ecowitt
+
+En [`ecowitt/`](ecowitt/) hay algo **independiente del panel**, que sirve a cualquiera que
+tenga una estación Ecowitt aunque no use nada de este tablero.
+
+Una pasarela Ecowitt sube a cuatro nubes de fábrica **y a un único servidor personalizado**.
+Uno solo. Si ese slot va a Home Assistant, no queda ninguno para Windy, para Windguru ni para
+una base propia. El puente se queda con ese slot y lo reparte:
+
+- recibe la estación y **archiva cada envío crudo antes de reenviarlo**
+- reparte en paralelo a todos los destinos, con intervalo mínimo y reintentos por destino
+- publica los sensores a Home Assistant por MQTT con auto-descubrimiento y testamento (LWT)
+- **una entidad por destino**: si falla, qué contestó y cuánto tardó
+- panel web para administrarlo, sin una sola librería
+
+Docker, Node, cero dependencias. El manual está en
+[**ecowitt/README.md**](ecowitt/README.md).
+
+---
+
 ## Por qué está escrito como código y no armado en la interfaz
 
 Un tablero de 31 vistas hecho a mano en el editor de Lovelace es imposible de mantener:

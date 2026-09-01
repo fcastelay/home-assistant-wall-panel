@@ -128,10 +128,39 @@ export function restilarAmbiente (carta, alto = '220px') {
   }
 }
 
+// CAMARAS QUE SOLO SIRVEN EN VIVO, y sin esto la vista Camaras se ve VACIA.
+//
+// Medido el 31/08/2026 contra `/api/camera_proxy` de las 11 camaras de la casa:
+//
+//     patio, czha_..._lavadero   ezviz    imagen fija de 28 KB     sirven de las dos formas
+//     patio_nest, cocina_nest,
+//     portero_nest               nest     imagen fija de 3 KB      SOLO EN VIVO
+//     terraza_2, sausalito_gar.  ezviz    HTTP 500                 no sirven
+//     cocina, habitacion,
+//     puerta_principal, salon    canary   HTTP 500                 no sirven
+//
+// **Las camaras Nest no dan foto fija**: la API de Google entrega video, y HA devuelve un
+// marcador de 3 KB cuando le piden una imagen. Y `camera_view: 'auto'` de HA muestra
+// justamente la foto fija, pasando a vivo recien cuando uno toca la tarjeta.
+//
+// Resultado: la vista Camaras dibujaba siete rectangulos vacios mientras el panel viejo
+// —que usa vivo— mostraba el portero sin problema. Se fuerza `live` en las que transmiten.
+//
+// COMO SE SABE CUALES: `supported_features` de la entidad. El bit 2 es STREAM. No se
+// pregunta al vuelo porque el tablero se genera fuera de HA; la lista se reviso midiendo y
+// esta arriba. Si se agrega una camara, correr scripts/ha/auditar-camaras.mjs.
+const SOLO_EN_VIVO = new Set([
+  'camera.patio_nest', 'camera.cocina_nest', 'camera.portero_nest',
+  'camera.patio', 'camera.czha_ara_galerqian_lavadero',
+])
+
 /** Camara: radio nuevo, nombre abajo-izquierda y chapita EN VIVO arriba. */
 export function restilarCamara (carta) {
   return {
     ...carta,
+    // `live` solo donde la camara transmite. En las que no, dejar `auto` al menos intenta la
+    // foto fija; forzar vivo ahi seria cambiar un rectangulo vacio por otro.
+    ...(SOLO_EN_VIVO.has(carta.entity) ? { camera_view: 'live' } : {}),
     card_mod: {
       style: `
         ha-card {
