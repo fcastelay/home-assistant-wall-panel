@@ -1,23 +1,32 @@
 // El auto-descubrimiento de Home Assistant: qué entidad se crea por cada campo y cómo.
 //
-// DOS TEMAS DE ESTADO, NO CUARENTA. Todos los sensores meteorológicos leen del mismo tema
-// (<base>/datos) con un JSON adentro, y cada entidad saca su valor con un value_template. Lo
-// mismo con los destinos, que van juntos en <base>/destinos.
+// UN APARATO POR ESTACION, MAS UNO DEL NODO. Con varias estaciones esto deja de ser un detalle:
+// en Home Assistant, "Patio" y "Quinta" tienen que ser dos aparatos distintos, cada uno con sus
+// sensores, para poder ponerlos en tarjetas separadas y para que un sensor no aparezca dos veces
+// con el mismo nombre. El nodo es un aparato aparte, con lo que no pertenece a ninguna estación:
+// cuántas estaciones hay y si algún destino está fallando.
 //
-// La alternativa —un tema por sensor— serían cuarenta publicaciones retenidas por minuto para
-// mandar el mismo objeto partido en pedazos, y un broker lleno de temas que hay que ir a
-// borrar a mano el día que se saca un sensor. Con un JSON, sacar un sensor es dejar de
+// DOS TEMAS DE ESTADO POR ESTACION, NO CUARENTA. Todos los sensores de una estación leen del
+// mismo tema con un JSON adentro, y cada entidad saca su valor con un value_template.
+//
+// La alternativa —un tema por sensor— serían cuarenta publicaciones retenidas por minuto y por
+// estación para mandar el mismo objeto partido en pedazos, y un broker lleno de temas que hay
+// que ir a borrar a mano el día que se saca un sensor. Con un JSON, sacar un sensor es dejar de
 // publicar esa clave.
 //
-// LA DISPONIBILIDAD ES LA MITAD DEL VALOR. Todas las entidades apuntan a <base>/estado, que el
-// broker pone en "offline" solo si el puente se muere (el testamento MQTT, ver _mqtt.mjs). Sin
-// eso, un puente caído deja sus últimos valores retenidos y Home Assistant sigue mostrando la
-// temperatura de hace tres días como si fuera de ahora. Así falló la WS2900 el 15/08 y nadie
+// LA DISPONIBILIDAD ES LA MITAD DEL VALOR. Todas las entidades, de todas las estaciones,
+// apuntan al MISMO tema de disponibilidad del nodo, que el broker pone en "offline" solo si el
+// puente se muere (el testamento MQTT, ver _mqtt.mjs). Es correcto que sea uno solo: el
+// testamento es de la conexión, y hay una sola conexión. Si el nodo se cae, ninguna estación
+// está reportando.
+//
+// Sin eso, un puente caído deja sus últimos valores retenidos y Home Assistant sigue mostrando
+// la temperatura de hace tres días como si fuera de ahora. Así falló la WS2900 el 15/08 y nadie
 // se enteró: los sensores no dijeron "no sé", se quedaron quietos.
 //
 // SOLO SE ANUNCIA LO QUE LLEGO. Un WH51 que no está no genera una entidad vacía. La lista de
-// abajo es el catálogo de lo posible; el anuncio se arma con la primera lectura real y se
-// completa si más adelante aparece un sensor nuevo.
+// abajo es el catálogo de lo posible; el anuncio se arma con la primera lectura real de cada
+// estación y se completa si más adelante aparece un sensor nuevo.
 
 /**
  * Catálogo: campo normalizado -> cómo se ve en Home Assistant.
@@ -85,60 +94,76 @@ export function describir (campo) {
 export const idDe = (nombre) => String(nombre).toLowerCase().normalize('NFD')
   .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'x'
 
-/**
- * Arma todos los mensajes de descubrimiento. Devuelve una lista de { tema, contenido } lista
- * para publicar retenida.
- *
- * @param campos     un objeto normalizado real: sólo se anuncia lo que trajo
- * @param destinos   la lista de destinos configurados
- * @param ajustes    { base, estacion, prefijo }
- */
-export function descubrimientos (campos, destinos, ajustes) {
-  const base = ajustes.base || 'estacion'
-  const pre = ajustes.prefijo || 'homeassistant'
-  const disponible = base + '/estado'
+// ---------------------------------------------------------------- temas
 
-  const aparato = {
-    identifiers: ['ecowitt_bridge'],
-    name: ajustes.estacion || 'Estación meteorológica',
-    model: campos.estacion || 'Ecowitt',
-    manufacturer: 'Ecowitt',
-    sw_version: 'ecowitt-bridge',
-  }
+export const temas = (raiz, idEstacion) => ({
+  // Uno solo para todo el nodo: el testamento es de la conexión, y hay una sola conexión.
+  disponible: raiz + '/estado',
+  nodo: raiz + '/nodo',
+  destinos: raiz + '/destinos',
+  datos: raiz + '/' + idEstacion + '/datos',
+  estacion: raiz + '/' + idEstacion + '/estado',
+})
+
+/**
+ * NO SE MANDA `object_id`, y sacarlo fue una medición, no una preferencia.
+ *
+ * El 01/09/2026 se comprobó contra un HA real: mandando `object_id: 'estacion_envios'` con
+ * nombre 'Envíos recibidos', la entidad quedó como `sensor.<aparato>_envios_recibidos`. **El
+ * object_id no se usó**: HA arma el identificador con el nombre del aparato más el de la
+ * entidad.
+ *
+ * LO QUE SI IMPORTA ES EL `unique_id`: es lo que ata la entidad a su entrada del registro.
+ * Mientras no cambie, HA reconoce la entidad y **conserva el entity_id que le puso la primera
+ * vez**, aunque después se le cambie el nombre. Por eso el id de una estación no se cambia
+ * nunca una vez creado.
+ */
+function armador (msgs, pre, aparato, disponible) {
   const comun = {
     device: aparato,
     availability_topic: disponible,
     payload_available: 'online',
     payload_not_available: 'offline',
   }
-  const msgs = []
-  // NO SE MANDA `object_id`, y sacarlo fue una medicion, no una preferencia.
-  //
-  // El 01/09/2026 se comprobo contra este HA: mandando `object_id: 'estacion_envios'` con
-  // nombre 'Envios recibidos', la entidad quedo como
-  // `sensor.estacion_meteorologica_envios_recibidos`. **El object_id no se uso**: HA arma el
-  // identificador con el nombre del aparato mas el nombre de la entidad.
-  //
-  // Dejarlo puesto no hacia daño, pero decia algo falso sobre como funciona esto, y el codigo
-  // que miente sobre su propio efecto es peor que el codigo de mas.
-  //
-  // LO QUE SI IMPORTA ES EL `unique_id`: es lo que ata la entidad a su entrada del registro.
-  // Mientras no cambie, HA reconoce la entidad y **conserva el entity_id que le puso la primera
-  // vez**, aunque despues se le cambie el nombre. Por eso quedaron dos entidades llamadas
-  // `..._estacion_ultimo_envio`, con la palabra repetida, que hubo que renombrar a mano con
-  // scripts/ha/renombrar-entidades.mjs. Cambiar un nombre no arregla un entity_id ya nacido.
-  const anunciar = (tipo, id, cfg) => msgs.push({
-    tema: pre + '/' + tipo + '/' + base + '/' + id + '/config',
-    contenido: JSON.stringify({ ...comun, ...cfg, unique_id: base + '_' + id }),
+  return (tipo, unico, cfg) => msgs.push({
+    tema: pre + '/' + tipo + '/' + unico + '/config',
+    contenido: JSON.stringify({ ...comun, ...cfg, unique_id: unico }),
   })
+}
+
+/**
+ * Los mensajes de descubrimiento de UNA estación.
+ *
+ * @param est      la estación de la configuración
+ * @param campos   una lectura real suya: sólo se anuncia lo que trajo
+ * @param destinos los destinos que le corresponden (los suyos y los comodín)
+ * @param o        { raiz, prefijo, nodo }
+ */
+export function descubrimientos (est, campos, destinos, o) {
+  const raiz = o.raiz || 'estacion'
+  const pre = o.prefijo || 'homeassistant'
+  const t = temas(raiz, est.id)
+  const msgs = []
+
+  const aparato = {
+    identifiers: [raiz + '_' + est.id],
+    name: est.nombre || ('Estación ' + est.id),
+    model: est.modelo || campos.estacion || 'Ecowitt',
+    manufacturer: 'Ecowitt',
+    // Con varias estaciones conviene que cuelguen del nodo: en Home Assistant quedan agrupadas
+    // y se ve de un vistazo cuál puente las trae.
+    via_device: raiz + '_nodo',
+  }
+  const anunciar = armador(msgs, pre, aparato, t.disponible)
+  const u = (sufijo) => raiz + '_' + est.id + '_' + sufijo
 
   // --- los sensores meteorológicos, uno por campo presente
   for (const campo of Object.keys(campos)) {
     const d = describir(campo)
     if (!d) continue
-    anunciar('sensor', campo, {
+    anunciar('sensor', u(campo), {
       name: d.n,
-      state_topic: base + '/datos',
+      state_topic: t.datos,
       value_template: '{{ value_json.' + campo + ' | default(none) }}',
       ...(d.u ? { unit_of_measurement: d.u } : {}),
       ...(d.c ? { device_class: d.c } : {}),
@@ -148,54 +173,102 @@ export function descubrimientos (campos, destinos, ajustes) {
     })
   }
 
-  // --- diagnóstico del puente
-  anunciar('sensor', 'ultimo_envio', {
-    name: 'Último envío', state_topic: base + '/puente',
+  // --- diagnóstico de la estación
+  anunciar('sensor', u('ultimo_envio'), {
+    name: 'Último envío', state_topic: t.estacion,
     value_template: '{{ value_json.ultimo }}', device_class: 'timestamp',
     entity_category: 'diagnostic', icon: 'mdi:clock-check-outline',
   })
-  anunciar('sensor', 'envios', {
-    name: 'Envíos recibidos', state_topic: base + '/puente',
+  anunciar('sensor', u('envios'), {
+    name: 'Envíos recibidos', state_topic: t.estacion,
     value_template: '{{ value_json.recibidos }}', state_class: 'total_increasing',
     entity_category: 'diagnostic', icon: 'mdi:counter',
   })
-  // ESTE ES EL QUE HAY QUE MIRAR: ON si la estación dejó de mandar. Lo calcula el puente, que
-  // sabe cada cuánto debería llegar un envío.
-  anunciar('binary_sensor', 'estacion_muda', {
-    name: 'Estación sin reportar', state_topic: base + '/puente',
+  // ESTE ES EL QUE HAY QUE MIRAR: ON si esta estación dejó de mandar. Lo calcula el puente, que
+  // sabe cada cuánto debería llegar un envío de ella.
+  anunciar('binary_sensor', u('sin_reportar'), {
+    name: 'Sin reportar', state_topic: t.estacion,
     value_template: '{{ value_json.muda }}', payload_on: 'ON', payload_off: 'OFF',
     device_class: 'problem', entity_category: 'diagnostic',
   })
-  anunciar('binary_sensor', 'algun_destino_caido', {
-    name: 'Algún destino caído', state_topic: base + '/puente',
-    value_template: '{{ value_json.alguno_caido }}', payload_on: 'ON', payload_off: 'OFF',
+
+  // --- los destinos de esta estación, comodines incluidos, colgados de ella
+  //
+  // UN COMODIN TAMBIEN CUELGA DE CADA ESTACION, y no del nodo. Puede estar andando bien con una
+  // y fallando con otra —una credencial que sólo vale para una cuenta, un servicio que rechaza
+  // la segunda estación— y una entidad única no tendría forma de decirlo.
+  for (const d of destinos) msgs.push(...entidadesDestino(d, est.id, raiz, pre, aparato, t))
+
+  return msgs
+}
+
+/** Las cuatro entidades de un destino. Se arman igual cuelguen de una estación o del nodo. */
+function entidadesDestino (d, idEstacion, raiz, pre, aparato, t) {
+  const msgs = []
+  const anunciar = armador(msgs, pre, aparato, t.disponible)
+  const clave = idDe(d.nombre) + '_' + idEstacion
+  const u = (sufijo) => raiz + '_destino_' + clave + '_' + sufijo
+  const v = (c) => '{{ value_json["' + clave + '"].' + c + ' | default(none) }}'
+  const et = (n) => d.nombre + ' · ' + n
+
+  anunciar('binary_sensor', u('problema'), {
+    name: et('problema'), state_topic: t.destinos, value_template: v('problema'),
+    payload_on: 'ON', payload_off: 'OFF', device_class: 'problem', entity_category: 'diagnostic',
+  })
+  anunciar('sensor', u('estado'), {
+    name: et('estado'), state_topic: t.destinos, value_template: v('detalle'),
+    icon: 'mdi:cloud-upload', entity_category: 'diagnostic',
+  })
+  anunciar('sensor', u('latencia'), {
+    name: et('latencia'), state_topic: t.destinos, value_template: v('latencia'),
+    unit_of_measurement: 'ms', state_class: 'measurement',
+    icon: 'mdi:timer-outline', entity_category: 'diagnostic',
+  })
+  anunciar('sensor', u('ultimo_ok'), {
+    name: et('último envío OK'), state_topic: t.destinos, value_template: v('ultimo_ok'),
+    device_class: 'timestamp', icon: 'mdi:cloud-check-outline', entity_category: 'diagnostic',
+  })
+  return msgs
+}
+
+/**
+ * Los mensajes de descubrimiento del NODO: lo que no pertenece a ninguna estación.
+ *
+ * Los destinos NO aparecen acá: cada uno cuelga de la estación que le toca, incluso los
+ * comodines. Ver el comentario en `descubrimientos`.
+ */
+export function descubrimientosNodo (o) {
+  const raiz = o.raiz || 'estacion'
+  const pre = o.prefijo || 'homeassistant'
+  const t = temas(raiz, '_')
+  const msgs = []
+
+  const aparato = {
+    identifiers: [raiz + '_nodo'],
+    name: o.nombre || 'Puente Ecowitt',
+    model: 'Puente multi-estación',
+    manufacturer: 'ecowitt-bridge',
+  }
+  const anunciar = armador(msgs, pre, aparato, t.disponible)
+  const u = (s) => raiz + '_nodo_' + s
+
+  anunciar('sensor', u('estaciones'), {
+    name: 'Estaciones activas', state_topic: t.nodo,
+    value_template: '{{ value_json.estaciones }}', icon: 'mdi:home-group',
+    entity_category: 'diagnostic',
+  })
+  anunciar('sensor', u('envios'), {
+    name: 'Envíos recibidos', state_topic: t.nodo,
+    value_template: '{{ value_json.recibidos }}', state_class: 'total_increasing',
+    icon: 'mdi:counter', entity_category: 'diagnostic',
+  })
+  // El de reojo: ON si CUALQUIER cosa está mal, en cualquier estación o destino. Es el único
+  // que hace falta poner en una tarjeta; los demás dicen dónde.
+  anunciar('binary_sensor', u('algo_mal'), {
+    name: 'Algo no está funcionando', state_topic: t.nodo,
+    value_template: '{{ value_json.algo_mal }}', payload_on: 'ON', payload_off: 'OFF',
     device_class: 'problem', entity_category: 'diagnostic',
   })
-
-  // --- un trío de entidades por destino: si falla, qué dijo, y cuánto tardó
-  for (const d of destinos) {
-    const id = idDe(d.nombre)
-    const v = (clave) => '{{ value_json["' + id + '"].' + clave + ' | default(none) }}'
-    anunciar('binary_sensor', 'destino_' + id, {
-      name: d.nombre + ' · problema', state_topic: base + '/destinos',
-      value_template: v('problema'), payload_on: 'ON', payload_off: 'OFF',
-      device_class: 'problem', entity_category: 'diagnostic',
-    })
-    anunciar('sensor', 'estado_' + id, {
-      name: d.nombre + ' · estado', state_topic: base + '/destinos',
-      value_template: v('detalle'), icon: 'mdi:cloud-upload', entity_category: 'diagnostic',
-    })
-    anunciar('sensor', 'latencia_' + id, {
-      name: d.nombre + ' · latencia', state_topic: base + '/destinos',
-      value_template: v('latencia'), unit_of_measurement: 'ms', state_class: 'measurement',
-      icon: 'mdi:timer-outline', entity_category: 'diagnostic',
-    })
-    anunciar('sensor', 'ultimo_ok_' + id, {
-      name: d.nombre + ' · último envío OK', state_topic: base + '/destinos',
-      value_template: v('ultimo_ok'), device_class: 'timestamp',
-      icon: 'mdi:cloud-check-outline', entity_category: 'diagnostic',
-    })
-  }
 
   return msgs
 }
@@ -203,18 +276,40 @@ export function descubrimientos (campos, destinos, ajustes) {
 /**
  * Los mensajes que RETIRAN un descubrimiento: mismo tema, contenido vacío.
  *
- * Hace falta al borrar un destino. Sin esto, sus cuatro entidades se quedan para siempre en
- * Home Assistant mostrando el último valor que tuvieron — que es exactamente lo que hubo que
- * limpiar a mano el 31/08/2026 después de una prueba con destinos inventados.
+ * Hace falta al borrar un destino o una estación. Sin esto, sus entidades se quedan para
+ * siempre en Home Assistant mostrando el último valor que tuvieron — que es exactamente lo que
+ * hubo que limpiar a mano el 31/08/2026 después de una prueba con destinos inventados.
  */
-export function retiros (nombreDestino, ajustes) {
-  const base = ajustes.base || 'estacion'
-  const pre = ajustes.prefijo || 'homeassistant'
-  const id = idDe(nombreDestino)
+export function retirosDestino (destino, idEstacion, o) {
+  const raiz = o.raiz || 'estacion'
+  const pre = o.prefijo || 'homeassistant'
+  const clave = idDe(destino.nombre) + '_' + idEstacion
   return [
-    ['binary_sensor', 'destino_' + id],
-    ['sensor', 'estado_' + id],
-    ['sensor', 'latencia_' + id],
-    ['sensor', 'ultimo_ok_' + id],
-  ].map(([tipo, e]) => ({ tema: pre + '/' + tipo + '/' + base + '/' + e + '/config', contenido: '' }))
+    ['binary_sensor', 'problema'], ['sensor', 'estado'],
+    ['sensor', 'latencia'], ['sensor', 'ultimo_ok'],
+  ].map(([tipo, s]) => ({
+    tema: pre + '/' + tipo + '/' + raiz + '_destino_' + clave + '_' + s + '/config', contenido: '',
+  }))
+}
+
+/** Lo mismo para una estación entera: sus diagnósticos y todos sus sensores posibles. */
+export function retirosEstacion (idEstacion, o) {
+  const raiz = o.raiz || 'estacion'
+  const pre = o.prefijo || 'homeassistant'
+  const base = raiz + '_' + idEstacion + '_'
+  const fuera = []
+  for (const campo of Object.keys(CATALOGO)) {
+    fuera.push({ tema: pre + '/sensor/' + base + campo + '/config', contenido: '' })
+  }
+  // Los canales numerados: se retiran todos los posibles, existan o no. Publicar un retiro de
+  // algo que no existe no hace nada; olvidarse de uno lo deja huérfano para siempre.
+  for (let i = 1; i <= 16; i++) {
+    for (const p of ['temp_ch', 'hum_ch', 'tierra_', 'hoja_', 'pm25_']) {
+      fuera.push({ tema: pre + '/sensor/' + base + p + i + '/config', contenido: '' })
+    }
+  }
+  fuera.push({ tema: pre + '/sensor/' + base + 'ultimo_envio/config', contenido: '' })
+  fuera.push({ tema: pre + '/sensor/' + base + 'envios/config', contenido: '' })
+  fuera.push({ tema: pre + '/binary_sensor/' + base + 'sin_reportar/config', contenido: '' })
+  return fuera
 }

@@ -233,24 +233,92 @@ export const PAGINA = `<!doctype html>
     .barra { padding: 12px 14px 10px; gap: 14px; }
     .pestanas { margin-left: 0; width: 100%; }
   }
+
+  /* --- Compuertas: instalar y entrar ------------------------------------- */
+  .compuerta { max-width: 380px; margin: 12vh auto; padding: 0 22px; }
+  .compuerta h2 { font-size: 20px; margin: 0 0 6px; letter-spacing: .12em; }
+  .compuerta .nota { margin-bottom: 20px; }
+  .compuerta .caja { padding: 22px 22px 24px; }
+  .compuerta button { width: 100%; margin: 18px 0 0; padding: 9px; }
+  .error-caja { color: var(--calor); font-size: 13px; margin: 12px 0 0; min-height: 1em; }
+
+  /* --- Tira de estaciones ------------------------------------------------ */
+  .tira { display: flex; gap: 1px; background: var(--isobara-fina); border: 1px solid var(--isobara); margin-bottom: 20px; overflow-x: auto; }
+  .tira button {
+    flex: 1 1 0; min-width: 150px; background: var(--papel-alto); border: 0;
+    border-bottom: 2px solid transparent; padding: 11px 14px; cursor: pointer;
+    text-align: left; color: var(--tinta-media); font: inherit;
+  }
+  .tira button:hover { color: var(--tinta); }
+  .tira button.sel { border-bottom-color: var(--frio); color: var(--tinta); }
+  .tira .n { display: block; font-size: 14px; font-weight: 600; }
+  .tira .e { display: block; font-size: 11px; color: var(--tinta-suave); margin-top: 2px; letter-spacing: .04em; }
+  .tira .mal .e { color: var(--calor); }
+  .tira .off .n { color: var(--tinta-suave); }
+
+  .quien { font-size: 11.5px; color: var(--tinta-suave); display: flex; align-items: center; gap: 10px; }
+  .quien b { color: var(--tinta-media); font-weight: 700; letter-spacing: .08em; }
 </style>
 </head>
 <body>
+
+<!-- Compuerta 1: todavía no hay ningún usuario. No se ve nada más hasta que exista un dueño. -->
+<div class="compuerta" id="c-instalar" style="display:none">
+  <div class="bloque">
+    <div class="ceja anot">Primer arranque</div>
+    <div class="cuerpo">
+      <h2 class="anot">Creá el administrador</h2>
+      <p class="nota">Este puente todavía no tiene dueño. El primero que entre lo crea, y desde
+        ahí decide quién más puede mirar. No hay contraseña de fábrica: una contraseña de
+        fábrica es una puerta abierta en todas las instalaciones del mundo.</p>
+      <label for="i-usuario">Usuario</label>
+      <input id="i-usuario" autocomplete="username" placeholder="tu nombre">
+      <label for="i-clave">Contraseña</label>
+      <input id="i-clave" type="password" autocomplete="new-password" placeholder="al menos 8 caracteres">
+      <button class="acc pri" id="b-instalar">Crear administrador</button>
+      <p class="error-caja" id="i-error"></p>
+    </div>
+  </div>
+</div>
+
+<!-- Compuerta 2: hay usuarios, falta la sesión. -->
+<div class="compuerta" id="c-entrar" style="display:none">
+  <div class="bloque">
+    <div class="ceja anot">Puente Ecowitt</div>
+    <div class="cuerpo">
+      <h2 class="anot">Entrar</h2>
+      <p class="nota">El puente sigue recibiendo y archivando aunque nadie esté mirando.</p>
+      <label for="e-usuario">Usuario</label>
+      <input id="e-usuario" autocomplete="username">
+      <label for="e-clave">Contraseña</label>
+      <input id="e-clave" type="password" autocomplete="current-password">
+      <button class="acc pri" id="b-entrar">Entrar</button>
+      <p class="error-caja" id="e-error"></p>
+    </div>
+  </div>
+</div>
+
+<!-- El panel -->
+<div id="panel" style="display:none">
 
 <header class="barra">
   <h1 class="marca anot">Puente <span>Ecowitt</span></h1>
   <div class="leyenda anot" id="leyenda"></div>
   <nav class="pestanas">
     <button data-v="monitor" class="sel">Observación</button>
+    <button data-v="estaciones">Estaciones</button>
     <button data-v="destinos">Destinos</button>
     <button data-v="ajustes">Ajustes</button>
   </nav>
+  <div class="quien"><span id="quien-soy"></span><button class="acc" id="b-salir">Salir</button></div>
 </header>
 <div class="vence"><div id="vence"></div></div>
 
 <main>
 
 <section id="v-monitor" class="sel">
+  <div class="tira" id="tira" style="display:none"></div>
+
   <div class="bloque">
     <div class="ceja anot">Observación<span class="der anot" id="cuando"></span></div>
     <div class="cuerpo">
@@ -273,7 +341,7 @@ export const PAGINA = `<!doctype html>
     <div class="ceja anot">Destinos<span class="der anot" id="resumen-destinos"></span></div>
     <div class="cuerpo">
       <table><thead><tr>
-        <th>Destino</th><th>Servicio</th><th>Último intento</th><th>Resultado</th>
+        <th>Destino</th><th>Estación</th><th>Servicio</th><th>Último intento</th><th>Resultado</th>
         <th class="num">Latencia</th><th class="num">Enviados / fallos</th><th></th>
       </tr></thead><tbody id="tabla-destinos"></tbody></table>
     </div>
@@ -285,6 +353,20 @@ export const PAGINA = `<!doctype html>
   </div>
 </section>
 
+<section id="v-estaciones">
+  <div class="bloque">
+    <div class="ceja anot">Estaciones<span class="der anot" id="cuenta-estaciones"></span></div>
+    <div class="cuerpo">
+      <p class="nota">Las estaciones aparecen solas: apuntá el gateway a este servidor y en el
+        próximo envío está acá. Nace apagada, y mientras esté apagada el puente
+        <b>archiva sus datos pero no los manda a ningún lado</b>. Ponele nombre y encendela.</p>
+      <table><thead><tr>
+        <th>Estación</th><th>Modelo</th><th>Identificador</th><th>Envíos</th><th>Último</th><th></th>
+      </tr></thead><tbody id="tabla-estaciones"></tbody></table>
+    </div>
+  </div>
+</section>
+
 <section id="v-destinos">
   <div class="bloque">
     <div class="ceja anot" id="titulo-form">Destino nuevo</div>
@@ -292,13 +374,15 @@ export const PAGINA = `<!doctype html>
       <div class="fila">
         <div>
           <label for="f-nombre">Nombre</label>
-          <input id="f-nombre" placeholder="Windy de casa">
+          <input id="f-nombre" placeholder="Windy del patio">
         </div>
         <div>
-          <label for="f-receta">Servicio</label>
-          <select id="f-receta"></select>
+          <label for="f-estacion">De qué estación manda</label>
+          <select id="f-estacion"></select>
         </div>
       </div>
+      <label for="f-receta">Servicio</label>
+      <select id="f-receta"></select>
       <p class="nota" id="f-notas"></p>
       <div id="f-credenciales"></div>
       <div class="fila">
@@ -328,18 +412,37 @@ export const PAGINA = `<!doctype html>
     <div class="ceja anot">Configurados<span class="der anot" id="cuenta-config"></span></div>
     <div class="cuerpo">
       <table><thead><tr>
-        <th>Destino</th><th>Servicio</th><th>Frecuencia</th><th>Estado</th><th></th>
+        <th>Destino</th><th>Estación</th><th>Servicio</th><th>Frecuencia</th><th>Estado</th><th></th>
       </tr></thead><tbody id="tabla-config"></tbody></table>
     </div>
   </div>
 </section>
 
 <section id="v-ajustes">
+  <div class="bloque" id="bloque-usuarios">
+    <div class="ceja anot">Usuarios</div>
+    <div class="cuerpo">
+      <table><thead><tr><th>Usuario</th><th>Puede</th><th></th></tr></thead>
+      <tbody id="tabla-usuarios"></tbody></table>
+      <div class="fila" style="margin-top:16px">
+        <div><label for="u-nombre">Usuario nuevo</label><input id="u-nombre"></div>
+        <div><label for="u-clave">Contraseña</label><input id="u-clave" type="password" autocomplete="new-password"></div>
+      </div>
+      <label for="u-rol">Puede</label>
+      <select id="u-rol">
+        <option value="mirar">Mirar: ve el estado y los datos</option>
+        <option value="admin">Administrar: además cambia todo</option>
+      </select>
+      <div style="margin-top:16px"><button class="acc" id="b-usuario">Agregar usuario</button></div>
+      <p class="error-caja" id="u-error"></p>
+    </div>
+  </div>
+
   <div class="bloque">
     <div class="ceja anot">Home Assistant · MQTT</div>
     <div class="cuerpo">
       <div class="fila">
-        <div><label for="m-host">Host del broker</label><input id="m-host" placeholder="TU_IP_LAN"></div>
+        <div><label for="m-host">Host del broker</label><input id="m-host" placeholder="dejalo vacío para usar el del contenedor"></div>
         <div><label for="m-puerto">Puerto</label><input id="m-puerto" type="number" value="1883"></div>
       </div>
       <div class="fila">
@@ -347,40 +450,52 @@ export const PAGINA = `<!doctype html>
         <div><label for="m-clave">Contraseña</label><input id="m-clave" type="password" placeholder="sin cambios"></div>
       </div>
       <label for="m-prefijo">Prefijo de auto-descubrimiento</label><input id="m-prefijo" value="homeassistant">
-      <p class="nota">Dejalo vacío para usar las variables del contenedor
-        (MQTT_HOST, MQTT_USUARIO, MQTT_CLAVE). Lo que cargues acá tiene prioridad.
-        Los cambios de MQTT se aplican cuando reinicies el contenedor.</p>
+      <p class="nota">Vacío = se usan las variables del contenedor (MQTT_HOST, MQTT_USUARIO,
+        MQTT_CLAVE). Lo que cargues acá tiene prioridad. Los cambios de MQTT se aplican cuando
+        reinicies el contenedor.</p>
     </div>
   </div>
+
   <div class="bloque">
-    <div class="ceja anot">Estación</div>
+    <div class="ceja anot">Este nodo</div>
     <div class="cuerpo">
       <div class="fila">
-        <div><label for="a-estacion">Nombre en Home Assistant</label><input id="a-estacion"></div>
-        <div><label for="a-base">Raíz de los temas MQTT</label><input id="a-base"></div>
+        <div><label for="a-nombre">Nombre del puente</label><input id="a-nombre"></div>
+        <div><label for="a-raiz">Raíz de los temas MQTT</label><input id="a-raiz"></div>
       </div>
-      <p class="nota">Cambiar la raíz crea entidades nuevas en Home Assistant y deja huérfanas
-        las viejas. Se elige una vez, al principio.</p>
+      <p class="nota">Cada estación cuelga de esa raíz con su propio identificador. Cambiarla
+        crea entidades nuevas en Home Assistant y deja huérfanas las viejas: se elige una vez,
+        al principio. Sólo hace falta tocarla si corrés dos puentes contra el mismo Home
+        Assistant.</p>
       <div style="margin-top:18px"><button class="acc pri" id="b-ajustes">Guardar ajustes</button></div>
     </div>
   </div>
 </section>
 
 </main>
+</div>
+
 <script>
-var CLAVE = sessionStorage.getItem('clave') || '';
-var HISTORIAL = [];
+// SIN UNA SOLA BARRA INVERTIDA EN TODO ESTE GUION, y es a propósito: este texto se pega dentro
+// de una plantilla de JavaScript, donde una barra invertida se consume al armar la página y
+// llega al navegador convertida en otra cosa. Por eso los manejadores de los botones no van en
+// atributos onclick —que obligarían a escapar comillas— sino por delegación de eventos.
+
+var ESTADO = null, CONFIG = null, RECETAS = [], EDITANDO = null, SESION = null;
+var ELEGIDA = null;   // qué estación se está mirando
 
 function pedir (ruta, opciones) {
   opciones = opciones || {};
-  opciones.headers = Object.assign({ 'x-clave': CLAVE }, opciones.headers || {});
+  opciones.credentials = 'same-origin';
   return fetch(ruta, opciones).then(function (r) {
-    if (r.status === 401) {
-      var c = prompt('Clave del panel:');
-      if (c) { CLAVE = c; sessionStorage.setItem('clave', c); return pedir(ruta, opciones); }
-      throw new Error('sin clave');
-    }
-    return r.json();
+    return r.json().then(function (j) { return { codigo: r.status, cuerpo: j }; })
+      .catch(function () { return { codigo: r.status, cuerpo: {} }; });
+  });
+}
+function mandar (ruta, cuerpo, metodo) {
+  return pedir(ruta, {
+    method: metodo || 'POST', headers: { 'Content-Type': 'application/json' },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined
   });
 }
 
@@ -402,6 +517,52 @@ function hace (iso) {
   if (s < 86400) return 'hace ' + Math.round(s / 3600) + ' h';
   return 'hace ' + Math.round(s / 86400) + ' d';
 }
+function ver (id, si) { document.getElementById(id).style.display = si ? '' : 'none'; }
+
+// ---------------------------------------------------------------- las tres compuertas
+function compuertas () {
+  return pedir('/api/sesion').then(function (r) {
+    SESION = r.cuerpo;
+    ver('c-instalar', !SESION.instalado);
+    ver('c-entrar', SESION.instalado && !SESION.usuario);
+    ver('panel', !!SESION.usuario);
+    if (SESION.usuario) {
+      document.getElementById('quien-soy').innerHTML =
+        '<b>' + esc(SESION.usuario) + '</b>' + (SESION.rol === 'admin' ? '' : ' · sólo mira');
+      ver('bloque-usuarios', SESION.rol === 'admin');
+      arrancarPanel();
+    }
+    return SESION;
+  });
+}
+
+document.getElementById('b-instalar').onclick = function () {
+  mandar('/api/instalar', {
+    usuario: document.getElementById('i-usuario').value.trim(),
+    clave: document.getElementById('i-clave').value
+  }).then(function (r) {
+    if (r.cuerpo.error) { document.getElementById('i-error').textContent = r.cuerpo.error; return; }
+    compuertas();
+  });
+};
+
+document.getElementById('b-entrar').onclick = function () {
+  mandar('/api/entrar', {
+    usuario: document.getElementById('e-usuario').value.trim(),
+    clave: document.getElementById('e-clave').value
+  }).then(function (r) {
+    if (r.cuerpo.error) { document.getElementById('e-error').textContent = r.cuerpo.error; return; }
+    document.getElementById('e-clave').value = '';
+    compuertas();
+  });
+};
+document.getElementById('e-clave').addEventListener('keydown', function (ev) {
+  if (ev.key === 'Enter') document.getElementById('b-entrar').click();
+});
+
+document.getElementById('b-salir').onclick = function () {
+  mandar('/api/salir').then(function () { location.reload(); });
+};
 
 // ---------------------------------------------------------------- pestañas
 var botones = document.querySelectorAll('.pestanas button');
@@ -450,13 +611,11 @@ function dibujarPlot (d) {
   s += '<circle class="anillo' + (lluvia ? ' lluvia' : '') + '" cx="0" cy="0" r="17"/>';
 
   if (hay && d.viento === 0) {
-    // Calma: el círculo doble es el símbolo estándar. No hay barba que dibujar.
     s += '<circle class="anillo" cx="0" cy="0" r="26"/>';
   } else if (hay && d.viento !== undefined) {
     var dir = d.viento_dir === undefined ? 0 : d.viento_dir;
-    var nudos = d.viento / 1.852;
     s += '<g class="barba" style="transform: rotate(' + dir + 'deg)">' +
-      '<line x1="0" y1="-17" x2="0" y2="-80"/>' + barbas(nudos) + '</g>';
+      '<line x1="0" y1="-17" x2="0" y2="-80"/>' + barbas(d.viento / 1.852) + '</g>';
   }
 
   if (hay) {
@@ -465,14 +624,12 @@ function dibujarPlot (d) {
     s += cifra(30, -12, d.presion_rel, '', 'hPa', 'start');
     s += cifra(30, 26, d.hum_ext, '%', 'Humedad', 'start');
   }
-  s += '</svg>';
-  caja.innerHTML = s;
+  caja.innerHTML = s + '</svg>';
 
   if (!hay) { pie.textContent = ''; return; }
   var t = [];
   if (d.viento !== undefined) {
-    t.push(d.viento === 0 ? '<b>Calma</b>'
-      : '<b>' + rumbo(d.viento_dir || 0) + ' ' + d.viento + '</b> km/h');
+    t.push(d.viento === 0 ? '<b>Calma</b>' : '<b>' + rumbo(d.viento_dir || 0) + ' ' + d.viento + '</b> km/h');
   }
   if (d.rafaga !== undefined) t.push('ráfaga ' + d.rafaga);
   if (lluvia) t.push('lloviendo ' + d.lluvia_tasa + ' mm/h');
@@ -480,7 +637,6 @@ function dibujarPlot (d) {
 }
 
 // ---------------------------------------------------------------- lecturas
-// Lo que NO está en el plot. Sin repetir: el plot ya dice temperatura, rocío, presión y humedad.
 var CELDAS = [
   ['rafaga', 'Ráfaga', 'km/h'], ['rafaga_max_dia', 'Ráfaga máx.', 'km/h'],
   ['lluvia_dia', 'Lluvia hoy', 'mm'], ['lluvia_tasa', 'Intensidad', 'mm/h'],
@@ -490,7 +646,7 @@ var CELDAS = [
   ['presion_abs', 'Presión abs.', 'hPa'], ['sensacion', 'Sensación', '°C']
 ];
 
-function pintarLecturas (d) {
+function pintarLecturas (d, est) {
   var h = '';
   for (var i = 0; i < CELDAS.length; i++) {
     var k = CELDAS[i][0];
@@ -499,84 +655,144 @@ function pintarLecturas (d) {
       '<span class="v dato">' + esc(d[k]) +
       (CELDAS[i][2] ? '<span class="u">' + CELDAS[i][2] + '</span>' : '') + '</span></div>';
   }
+  var vacio = est
+    ? 'Esta estación todavía no reportó nada.'
+    : 'Ninguna estación reportó todavía. Apuntá el gateway a este servidor, puerto ' +
+      location.port + ', ruta /data/report, y aparece sola en el próximo envío.';
   document.getElementById('lecturas').innerHTML = h
     ? '<div class="lecturas">' + h + '</div>'
-    : '<div class="vacio">La estación todavía no reportó. Apuntá el GW3000 a este servidor, ' +
-      'puerto 8088, ruta /data/report, y esto se llena solo con el primer envío.</div>';
+    : '<div class="vacio">' + vacio + '</div>';
+}
+
+// ---------------------------------------------------------------- la tira de estaciones
+function pintarTira (e) {
+  var t = '';
+  for (var i = 0; i < e.estaciones.length; i++) {
+    var s = e.estaciones[i];
+    var clase = (s.id === ELEGIDA ? 'sel ' : '') + (!s.activa ? 'off' : (s.muda === 'ON' ? 'mal' : ''));
+    var estado = !s.activa ? 'apagada' : (s.muda === 'ON' ? 'no reporta' :
+      (s.recibidos ? hace(s.ultimo) : 'sin datos'));
+    t += '<button class="' + clase + '" data-accion="elegir" data-id="' + esc(s.id) + '">' +
+      '<span class="n">' + esc(s.nombre || s.id) + '</span>' +
+      '<span class="e anot">' + estado + '</span></button>';
+  }
+  document.getElementById('tira').innerHTML = t;
+  // Con una sola estación la tira no aporta nada: es un botón que no lleva a ningún lado.
+  ver('tira', e.estaciones.length > 1);
 }
 
 // ---------------------------------------------------------------- estado
 function pintarEstado (e) {
-  var caidos = 0, activos = 0;
-  for (var i = 0; i < e.destinos.length; i++) {
-    if (!e.destinos[i].activo) continue;
-    activos++;
-    if (e.destinos[i].problema) caidos++;
+  ESTADO = e;
+  var elegida = null;
+  for (var i = 0; i < e.estaciones.length; i++) if (e.estaciones[i].id === ELEGIDA) elegida = e.estaciones[i];
+  if (!elegida && e.estaciones.length) {
+    // Se elige sola la que reportó más recién: es la que uno quiere ver al abrir.
+    elegida = e.estaciones.slice().sort(function (a, b) {
+      return new Date(b.ultimo || 0) - new Date(a.ultimo || 0);
+    })[0];
+    ELEGIDA = elegida.id;
   }
-  var muda = e.puente.muda === 'ON';
+
+  var caidos = 0, activos = 0;
+  for (var j = 0; j < e.destinos.length; j++) {
+    if (!e.destinos[j].activo) continue;
+    activos++;
+    if (e.destinos[j].problema) caidos++;
+  }
+  var mudas = e.estaciones.filter(function (s) { return s.activa && s.muda === 'ON'; }).length;
   var glifo = function (mal, txt, val) {
     return '<span class="' + (mal ? 'mal' : '') + '"><b>' + txt + '</b><i>' + val + '</i></span>';
   };
   document.getElementById('leyenda').innerHTML =
-    glifo(muda, 'Estación', e.puente.recibidos ? (muda ? 'no reporta' : hace(e.puente.ultimo)) : 'sin datos') +
+    glifo(mudas > 0, 'Estaciones', e.nodo.activas + ' activas' + (mudas ? ' · ' + mudas + ' sin reportar' : '')) +
     glifo(!e.mqtt.conectado, 'MQTT', e.mqtt.conectado ? 'conectado' : (e.mqtt.motivo || 'sin conectar')) +
     glifo(caidos > 0, 'Destinos', caidos ? caidos + ' con problemas' : activos + ' al día');
 
-  // La regla de vencimiento. El umbral es el mismo que usa el puente: tres intervalos, con
-  // piso de 10 minutos. Cuando se llena, la estación pasa a figurar muda.
+  pintarTira(e);
+
   var barra = document.getElementById('vence');
-  if (e.puente.ultimo) {
-    var pasado = (Date.now() - new Date(e.puente.ultimo).getTime()) / 1000;
-    var umbral = Math.max(3 * ((e.datos.intervalo || 60)), 600);
+  if (elegida && elegida.ultimo) {
+    var pasado = (Date.now() - new Date(elegida.ultimo).getTime()) / 1000;
+    var umbral = Math.max(3 * ((elegida.datos.intervalo || 60)), 600);
     var p = Math.min(1, pasado / umbral);
     barra.style.width = (p * 100).toFixed(1) + '%';
-    barra.style.background = p > .99 ? 'var(--calor)' : (p > .66 ? 'var(--sodio)' : 'var(--frio)');
+    barra.style.background = p > 0.99 ? 'var(--calor)' : (p > 0.66 ? 'var(--sodio)' : 'var(--frio)');
   } else { barra.style.width = '0'; }
 
-  document.getElementById('cuando').textContent = e.puente.ultimo
-    ? hhmm(e.puente.ultimo) + ' · ' + hace(e.puente.ultimo) + ' · ' + e.puente.recibidos + ' envíos'
-    : 'sin observación';
+  document.getElementById('cuando').textContent = elegida
+    ? (elegida.nombre || elegida.id) + (elegida.ultimo
+        ? ' · ' + hhmm(elegida.ultimo) + ' · ' + hace(elegida.ultimo) + ' · ' + elegida.recibidos + ' envíos'
+        : ' · sin observación')
+    : 'sin ninguna estación';
 
-  dibujarPlot(e.datos);
-  pintarLecturas(e.datos);
+  dibujarPlot(elegida ? elegida.datos : {});
+  pintarLecturas(elegida ? elegida.datos : {}, elegida);
+  dibujar(elegida ? elegida.historial : []);
 
   document.getElementById('resumen-destinos').textContent =
-    e.destinos.length ? e.destinos.length + ' configurados' : '';
+    e.destinos.length ? e.destinos.length + ' envíos configurados' : '';
 
   var t = '';
-  for (var j = 0; j < e.destinos.length; j++) {
-    var d = e.destinos[j];
+  for (var m = 0; m < e.destinos.length; m++) {
+    var d = e.destinos[m];
     var g = '<span class="glifo g-off">·</span>', clase = '';
     if (d.activo && d.problema) { g = '<span class="glifo g-mal">✕</span>'; clase = 'txt-mal'; }
     else if (d.activo && d.esperando) { g = '<span class="glifo g-esp">◷</span>'; clase = 'txt-esp'; }
     else if (d.activo && d.ultimo_ok) { g = '<span class="glifo g-ok">●</span>'; }
     else if (d.activo) { g = '<span class="glifo g-ok">○</span>'; }
     t += '<tr><td>' + g + esc(d.nombre) + '</td>' +
+      '<td>' + esc(d.estacion_nombre) + (d.comodin ? ' <span class="sin-ver anot">comodín</span>' : '') + '</td>' +
       '<td>' + esc(d.servicio) +
         (d.verificado === false ? ' <span class="sin-ver anot">sin verificar</span>' : '') + '</td>' +
       '<td class="dato">' + (d.ultimo_intento ? hhmm(d.ultimo_intento) : '—') + '</td>' +
       '<td class="' + clase + '">' + esc(d.detalle || (d.activo ? 'sin enviar' : 'apagado')) + '</td>' +
       '<td class="num dato">' + (d.latencia ? d.latencia + ' ms' : '—') + '</td>' +
       '<td class="num dato">' + (d.enviados || 0) + ' / ' + (d.fallidos || 0) + '</td>' +
-      '<td class="num"><button class="acc" onclick="probar(\\'' + esc(d.nombre).replace(/'/g, '') + '\\')">Probar</button></td></tr>';
+      '<td class="num"><button class="acc" data-accion="probar" data-nombre="' + esc(d.nombre) +
+        '" data-estacion="' + esc(d.estacion) + '">Probar</button></td></tr>';
   }
   document.getElementById('tabla-destinos').innerHTML = t ||
-    '<tr><td colspan="7"><div class="vacio">Ningún destino configurado. El puente archiva igual: ' +
+    '<tr><td colspan="8"><div class="vacio">Ningún destino configurado. El puente archiva igual: ' +
     'cada envío se guarda en disco antes de repartirse.</div></td></tr>';
 
   var l = '';
-  for (var m = 0; m < e.log.length; m++) {
-    l += '<div><span class="h">' + hhmm(e.log[m].t) + '</span><span class="' + e.log[m].nivel + '">' +
-      esc(e.log[m].texto) + '</span></div>';
+  for (var n = 0; n < e.log.length; n++) {
+    l += '<div><span class="h">' + hhmm(e.log[n].t) + '</span><span class="' + e.log[n].nivel + '">' +
+      esc(e.log[n].texto) + '</span></div>';
   }
   document.getElementById('log').innerHTML = l || '<div class="vacio">Sin eventos.</div>';
 
-  HISTORIAL = e.historial;
-  dibujar(HISTORIAL);
+  pintarEstaciones(e);
+}
+
+function pintarEstaciones (e) {
+  document.getElementById('cuenta-estaciones').textContent =
+    e.estaciones.length ? e.estaciones.length + ' descubiertas' : '';
+  var t = '';
+  for (var i = 0; i < e.estaciones.length; i++) {
+    var s = e.estaciones[i];
+    t += '<tr><td>' +
+      (s.activa ? '<span class="glifo g-ok">●</span>' : '<span class="glifo g-off">·</span>') +
+      '<input data-accion="nombre" data-id="' + esc(s.id) + '" value="' + esc(s.nombre) +
+      '" placeholder="sin nombre" style="width:auto;display:inline-block"></td>' +
+      '<td>' + esc(s.modelo || '—') + '</td>' +
+      '<td class="dato">' + esc(s.passkey || s.id) + '</td>' +
+      '<td class="num dato">' + s.recibidos + '</td>' +
+      '<td>' + (s.ultimo ? hace(s.ultimo) : 'nunca') + '</td>' +
+      '<td class="num">' +
+      '<button class="acc" data-accion="est-alternar" data-id="' + esc(s.id) + '" data-activa="' +
+        (s.activa ? '1' : '0') + '">' + (s.activa ? 'Apagar' : 'Encender') + '</button>' +
+      '<button class="acc peli" data-accion="est-borrar" data-id="' + esc(s.id) + '">Borrar</button>' +
+      '</td></tr>';
+  }
+  document.getElementById('tabla-estaciones').innerHTML = t ||
+    '<tr><td colspan="6"><div class="vacio">Todavía no llegó ninguna. En el gateway: Weather ' +
+    'Services, Customized, protocolo Ecowitt, este servidor, puerto ' + location.port +
+    ', ruta /data/report, intervalo 60 s.</div></td></tr>';
 }
 
 // ---------------------------------------------------------------- la traza
-// Un barógrafo: rejilla de isobaras y el trazo encima. Se lee del CSS para que siga al tema.
 function dibujar (h) {
   var c = document.getElementById('grafico');
   var ctx = c.getContext('2d');
@@ -596,7 +812,7 @@ function dibujar (h) {
   ctx.strokeStyle = isobara; ctx.lineWidth = 1;
   for (var g = 0; g <= 4; g++) {
     var y = 8 + (al - 30) * (g / 4);
-    ctx.beginPath(); ctx.moveTo(0, y + .5); ctx.lineTo(an, y + .5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(an, y + 0.5); ctx.stroke();
   }
 
   var nota = document.getElementById('traza-nota');
@@ -625,27 +841,77 @@ function dibujar (h) {
   nota.textContent = pts.length + ' lecturas · el historial del panel se borra al reiniciar';
 }
 
-function probar (nombre) {
-  pedir('/api/probar', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nombre: nombre })
-  }).then(function (r) {
-    alert(r.ok ? 'Llegó bien. ' + (r.detalle || '') : 'No llegó. ' + (r.detalle || ''));
-    refrescar();
-  });
+// ---------------------------------------------------------------- acciones, por delegación
+document.addEventListener('click', function (ev) {
+  var b = ev.target.closest('[data-accion]');
+  if (!b) return;
+  var a = b.dataset.accion;
+
+  if (a === 'elegir') { ELEGIDA = b.dataset.id; refrescar(); return; }
+
+  if (a === 'probar') {
+    mandar('/api/probar', { nombre: b.dataset.nombre, estacion: b.dataset.estacion }).then(function (r) {
+      alert(r.cuerpo.ok ? 'Llegó bien. ' + (r.cuerpo.detalle || '') : 'No llegó. ' + (r.cuerpo.detalle || ''));
+      refrescar();
+    });
+    return;
+  }
+  if (a === 'est-alternar') {
+    mandar('/api/estacion', { id: b.dataset.id, activa: b.dataset.activa !== '1' }).then(refrescar);
+    return;
+  }
+  if (a === 'est-borrar') {
+    if (!confirm('Borrar la estación "' + b.dataset.id + '". Se van también sus destinos y sus ' +
+      'entidades de Home Assistant. El archivo crudo en disco NO se borra.')) return;
+    mandar('/api/estacion?id=' + encodeURIComponent(b.dataset.id), null, 'DELETE').then(function (r) {
+      if (r.cuerpo.error) alert(r.cuerpo.error);
+      refrescar(); cargarConfig();
+    });
+    return;
+  }
+  if (a === 'editar') { editar(b.dataset.nombre); return; }
+  if (a === 'alternar') {
+    var d = buscar(b.dataset.nombre);
+    if (d) mandar('/api/destino', { anterior: d.nombre, destino: { nombre: d.nombre, activo: !d.activo } }).then(cargarConfig);
+    return;
+  }
+  if (a === 'borrar') {
+    if (!confirm('Borrar "' + b.dataset.nombre + '". Se quitan también sus entidades de Home Assistant.')) return;
+    mandar('/api/destino?nombre=' + encodeURIComponent(b.dataset.nombre), null, 'DELETE').then(cargarConfig);
+    return;
+  }
+  if (a === 'borrar-usuario') {
+    if (!confirm('Borrar al usuario "' + b.dataset.nombre + '".')) return;
+    mandar('/api/usuarios?nombre=' + encodeURIComponent(b.dataset.nombre), null, 'DELETE').then(function (r) {
+      if (r.cuerpo.error) document.getElementById('u-error').textContent = r.cuerpo.error;
+      cargarConfig();
+    });
+  }
+});
+
+// El nombre de una estación se guarda al salir del campo, no en cada tecla.
+document.addEventListener('change', function (ev) {
+  var t = ev.target;
+  if (t.dataset && t.dataset.accion === 'nombre') {
+    mandar('/api/estacion', { id: t.dataset.id, nombre: t.value.trim() }).then(refrescar);
+  }
+});
+
+function refrescar () {
+  return pedir('/api/estado').then(function (r) {
+    if (r.codigo === 401) { location.reload(); return; }
+    pintarEstado(r.cuerpo);
+  }).catch(function () {});
 }
 
-function refrescar () { pedir('/api/estado').then(pintarEstado).catch(function () {}); }
-
 // ---------------------------------------------------------------- configuración
-var RECETAS = [], CONFIG = null, EDITANDO = null;
-
 function cargarRecetas () {
   return pedir('/api/recetas').then(function (r) {
-    RECETAS = r;
+    RECETAS = r.cuerpo;
     var s = document.getElementById('f-receta'), h = '';
-    for (var i = 0; i < r.length; i++) {
-      h += '<option value="' + r[i].id + '">' + esc(r[i].nombre) + (r[i].verificado ? '' : ' · sin verificar') + '</option>';
+    for (var i = 0; i < RECETAS.length; i++) {
+      h += '<option value="' + RECETAS[i].id + '">' + esc(RECETAS[i].nombre) +
+        (RECETAS[i].verificado ? '' : ' · sin verificar') + '</option>';
     }
     s.innerHTML = h;
     s.onchange = function () { pintarCampos(); };
@@ -678,38 +944,68 @@ function pintarCampos (valores) {
   if (!valores) document.getElementById('f-intervalo').value = r.intervalo_sug || 0;
 }
 
+function opcionesEstacion (elegida) {
+  var h = '<option value="*">Todas las estaciones</option>';
+  var e = CONFIG ? CONFIG.estaciones : {};
+  for (var id in e) {
+    h += '<option value="' + esc(id) + '"' + (elegida === id ? ' selected' : '') + '>' +
+      esc(e[id].nombre || id) + '</option>';
+  }
+  document.getElementById('f-estacion').innerHTML = h;
+  if (elegida === '*') document.getElementById('f-estacion').value = '*';
+}
+
 function cargarConfig () {
-  return pedir('/api/config').then(function (c) {
+  return pedir('/api/config').then(function (r) {
+    if (r.codigo === 401) { location.reload(); return; }
+    var c = r.cuerpo;
     CONFIG = c;
     document.getElementById('m-host').value = c.mqtt.host || '';
     document.getElementById('m-puerto').value = c.mqtt.puerto || 1883;
     document.getElementById('m-usuario').value = c.mqtt.usuario || '';
     document.getElementById('m-prefijo').value = c.mqtt.prefijo || 'homeassistant';
-    document.getElementById('a-estacion').value = c.ajustes.estacion || '';
-    document.getElementById('a-base').value = c.ajustes.base || '';
+    document.getElementById('a-nombre').value = (c.nodo && c.nodo.nombre) || '';
+    document.getElementById('a-raiz').value = (c.nodo && c.nodo.raiz) || '';
+    opcionesEstacion(document.getElementById('f-estacion').value);
     document.getElementById('cuenta-config').textContent =
       c.destinos.length ? c.destinos.length + ' destinos' : '';
+
     var h = '';
     for (var i = 0; i < c.destinos.length; i++) {
       var d = c.destinos[i];
-      var n = esc(d.nombre).replace(/'/g, '');
-      h += '<tr><td>' + esc(d.nombre) + '</td><td>' + esc(d.receta || d.tipo) + '</td>' +
+      var donde = d.estacion === '*' ? 'todas' :
+        ((c.estaciones[d.estacion] || {}).nombre || d.estacion);
+      h += '<tr><td>' + esc(d.nombre) + '</td><td>' + esc(donde) + '</td>' +
+        '<td>' + esc(d.receta || d.tipo) + '</td>' +
         '<td>' + (d.intervalo_min ? 'cada ' + d.intervalo_min + ' s' : 'todos los envíos') + '</td>' +
-        '<td>' + (d.activo
-          ? '<span class="glifo g-ok">●</span>enviando'
-          : '<span class="glifo g-off">·</span>apagado') + '</td>' +
+        '<td>' + (d.activo ? '<span class="glifo g-ok">●</span>enviando'
+                           : '<span class="glifo g-off">·</span>apagado') + '</td>' +
         '<td class="num">' +
-        '<button class="acc" onclick="editar(\\'' + n + '\\')">Editar</button>' +
-        '<button class="acc" onclick="alternar(\\'' + n + '\\')">' + (d.activo ? 'Apagar' : 'Encender') + '</button>' +
-        '<button class="acc peli" onclick="borrar(\\'' + n + '\\')">Borrar</button></td></tr>';
+        '<button class="acc" data-accion="editar" data-nombre="' + esc(d.nombre) + '">Editar</button>' +
+        '<button class="acc" data-accion="alternar" data-nombre="' + esc(d.nombre) + '">' +
+          (d.activo ? 'Apagar' : 'Encender') + '</button>' +
+        '<button class="acc peli" data-accion="borrar" data-nombre="' + esc(d.nombre) + '">Borrar</button>' +
+        '</td></tr>';
     }
     document.getElementById('tabla-config').innerHTML = h ||
-      '<tr><td colspan="5"><div class="vacio">Ninguno todavía. Cargá el primero arriba: ' +
+      '<tr><td colspan="6"><div class="vacio">Ninguno todavía. Cargá el primero arriba: ' +
       'empezá por Home Assistant.</div></td></tr>';
+
+    if (c.usuarios) {
+      var u = '';
+      for (var k = 0; k < c.usuarios.length; k++) {
+        u += '<tr><td>' + esc(c.usuarios[k].nombre) + '</td>' +
+          '<td>' + (c.usuarios[k].rol === 'admin' ? 'administrar todo' : 'mirar') + '</td>' +
+          '<td class="num"><button class="acc peli" data-accion="borrar-usuario" data-nombre="' +
+          esc(c.usuarios[k].nombre) + '">Borrar</button></td></tr>';
+      }
+      document.getElementById('tabla-usuarios').innerHTML = u;
+    }
   });
 }
 
 function buscar (nombre) {
+  if (!CONFIG) return null;
   for (var i = 0; i < CONFIG.destinos.length; i++) if (CONFIG.destinos[i].nombre === nombre) return CONFIG.destinos[i];
   return null;
 }
@@ -721,6 +1017,7 @@ function editar (nombre) {
   document.getElementById('titulo-form').textContent = 'Editando ' + nombre;
   document.getElementById('f-nombre').value = d.nombre;
   document.getElementById('f-receta').value = d.receta || 'webhook';
+  opcionesEstacion(d.estacion);
   pintarCampos(d.credenciales || {});
   document.getElementById('f-intervalo').value = d.intervalo_min || 0;
   document.getElementById('f-reintentos').value = d.reintentos === undefined ? 2 : d.reintentos;
@@ -745,70 +1042,75 @@ document.getElementById('b-guardar').onclick = function () {
     nombre: document.getElementById('f-nombre').value.trim(),
     tipo: 'receta',
     receta: document.getElementById('f-receta').value,
+    estacion: document.getElementById('f-estacion').value,
     credenciales: cred,
     intervalo_min: Number(document.getElementById('f-intervalo').value) || 0,
     reintentos: Number(document.getElementById('f-reintentos').value) || 0,
     activo: document.getElementById('f-activo').checked
   };
   if (!d.nombre) { alert('Ponele un nombre al destino.'); return; }
-  pedir('/api/destino', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ anterior: EDITANDO, destino: d })
-  }).then(function (r) {
-    if (r.error) { alert(r.error); return; }
-    if (r.faltan && r.faltan.length) alert('Guardado. Le faltan: ' + r.faltan.join(', '));
+  mandar('/api/destino', { anterior: EDITANDO, destino: d }).then(function (r) {
+    if (r.cuerpo.error) { alert(r.cuerpo.error); return; }
+    if (r.cuerpo.faltan && r.cuerpo.faltan.length) alert('Guardado. Le faltan: ' + r.cuerpo.faltan.join(', '));
     document.getElementById('b-cancelar').onclick();
     cargarConfig();
   });
 };
 
-function alternar (nombre) {
-  var d = buscar(nombre);
-  if (!d) return;
-  pedir('/api/destino', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ anterior: nombre, destino: { nombre: nombre, activo: !d.activo } })
-  }).then(cargarConfig);
-}
-
-function borrar (nombre) {
-  if (!confirm('Borrar "' + nombre + '".\\n\\nSe quitan también sus entidades de Home Assistant.')) return;
-  pedir('/api/destino?nombre=' + encodeURIComponent(nombre), { method: 'DELETE' }).then(cargarConfig);
-}
-
-document.getElementById('b-ajustes').onclick = function () {
-  pedir('/api/config', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      mqtt: {
-        host: document.getElementById('m-host').value.trim(),
-        puerto: Number(document.getElementById('m-puerto').value) || 1883,
-        usuario: document.getElementById('m-usuario').value.trim(),
-        clave: document.getElementById('m-clave').value,
-        prefijo: document.getElementById('m-prefijo').value.trim() || 'homeassistant'
-      },
-      ajustes: {
-        estacion: document.getElementById('a-estacion').value.trim(),
-        base: document.getElementById('a-base').value.trim() || 'estacion'
-      }
-    })
+document.getElementById('b-usuario').onclick = function () {
+  document.getElementById('u-error').textContent = '';
+  mandar('/api/usuarios', {
+    usuario: document.getElementById('u-nombre').value.trim(),
+    clave: document.getElementById('u-clave').value,
+    rol: document.getElementById('u-rol').value
   }).then(function (r) {
-    document.getElementById('m-clave').value = '';
-    alert(r.error ? r.error : 'Guardado. Los cambios de MQTT se aplican al reiniciar el contenedor.');
+    if (r.cuerpo.error) { document.getElementById('u-error').textContent = r.cuerpo.error; return; }
+    document.getElementById('u-nombre').value = '';
+    document.getElementById('u-clave').value = '';
     cargarConfig();
   });
 };
 
-cargarRecetas().then(cargarConfig);
-refrescar();
-setInterval(refrescar, 5000);
-// El redibujo al cambiar de tamaño usa lo que ya está en memoria. Pedirlo a la API seria
-// una llamada por cada cuadro mientras se arrastra el borde de la ventana.
+document.getElementById('b-ajustes').onclick = function () {
+  mandar('/api/config', {
+    mqtt: {
+      host: document.getElementById('m-host').value.trim(),
+      puerto: Number(document.getElementById('m-puerto').value) || 1883,
+      usuario: document.getElementById('m-usuario').value.trim(),
+      clave: document.getElementById('m-clave').value,
+      prefijo: document.getElementById('m-prefijo').value.trim() || 'homeassistant'
+    },
+    nodo: {
+      nombre: document.getElementById('a-nombre').value.trim(),
+      raiz: document.getElementById('a-raiz').value.trim() || 'estacion'
+    }
+  }).then(function (r) {
+    document.getElementById('m-clave').value = '';
+    alert(r.cuerpo.error ? r.cuerpo.error : 'Guardado. Los cambios de MQTT se aplican al reiniciar el contenedor.');
+    cargarConfig();
+  });
+};
+
 var redibujo = null;
 window.addEventListener('resize', function () {
   clearTimeout(redibujo);
-  redibujo = setTimeout(function () { dibujar(HISTORIAL); }, 150);
+  redibujo = setTimeout(function () {
+    if (!ESTADO) return;
+    for (var i = 0; i < ESTADO.estaciones.length; i++) {
+      if (ESTADO.estaciones[i].id === ELEGIDA) dibujar(ESTADO.estaciones[i].historial);
+    }
+  }, 150);
 });
+
+function arrancarPanel () {
+  if (arrancarPanel.hecho) return;
+  arrancarPanel.hecho = true;
+  cargarRecetas().then(cargarConfig);
+  refrescar();
+  setInterval(refrescar, 5000);
+}
+
+compuertas();
 </script>
 </body>
 </html>`

@@ -1,39 +1,159 @@
 # Puente Ecowitt
 
-Recibe los datos de una estación Ecowitt, **los archiva crudos** y los reparte a todos los
-servicios que haga falta, con panel web y auto-descubrimiento de Home Assistant.
+Un nodo que recibe **una o varias** estaciones Ecowitt, **archiva todo crudo en disco** y lo
+reparte a los servicios que quieras — cada estación a los suyos.
 
-Node sin una sola dependencia. La imagen es Node más nueve archivos y un guion de arranque.
+Con panel web, usuarios, y auto-descubrimiento de Home Assistant.
+
+Node sin una sola dependencia. La imagen es Node más diez archivos.
 
 ---
 
 ## Por qué existe
 
-El gateway Ecowitt sube a cuatro nubes que ya trae de fábrica —ecowitt.net, Wunderground,
+Una pasarela Ecowitt sube a cuatro nubes que ya trae de fábrica —ecowitt.net, Wunderground,
 Weathercloud y WOW— **y a un único servidor personalizado**. Uno solo.
 
-Si ese slot va a Home Assistant, no queda ninguno para nada más: ni Windy, ni Windguru, ni una
-base propia, ni el servicio que aparezca el año que viene. El puente se queda con ese slot y lo
-reparte a todos los destinos que uno quiera.
+Si ese lugar se usa para Home Assistant, no queda ninguno para Windy, para Windguru, ni para
+una base propia. El puente se queda con ese lugar y lo reparte.
 
 > **Lo que NO conviene mandar por acá:** las cuatro nubes que el gateway ya soporta nativo.
-> Pasarlas por el puente agrega un punto de falla sin ganar nada. Que las siga subiendo el
-> gateway. Las recetas de Wunderground y WOW están para el caso de una segunda cuenta o un ID
-> distinto, y lo dicen en sus notas.
+> Pasarlas por el puente agrega un punto de falla sin ganar nada. Las recetas de Wunderground y
+> WOW están para el caso de una segunda cuenta o un ID distinto, y lo dicen en sus notas.
 
 ---
 
-## Qué hace
+## Instalarlo
+
+```bash
+git clone <este-repo> && cd ecowitt
+cp .env.ejemplo .env          # opcional: se puede levantar sin tocar nada
+docker compose up -d
+```
+
+Abrí `http://tu-servidor:8088/`. La primera vez te pide crear el administrador — o ya entrás
+directo si pusiste `ADMIN_USUARIO` y `ADMIN_CLAVE` en el `.env`.
+
+**En un Synology:** Container Manager → Proyecto → Crear, apuntando a la carpeta.
+
+**Sin Docker, para probar:**
+
+```bash
+node receptora.mjs --puerto 8088 --sin-mqtt
+node probar.mjs                 # la prueba de punta a punta, 60 comprobaciones
+```
+
+`--sin-mqtt` no es un detalle: sin esa bandera, una prueba se conecta a tu broker de verdad y
+crea entidades que después hay que borrar a mano. Ya pasó.
+
+### Todo se configura por variables
+
+Nada tiene un puerto, una IP ni una ruta escritos a mano. El [`.env.ejemplo`](.env.ejemplo)
+tiene las 20 variables explicadas una por una; lo esencial:
 
 | | |
 |---|---|
-| **Recibe** | POST en formato Ecowitt (y también Wunderground), en cualquier ruta |
-| **Archiva** | cada envío tal como llegó, en `datos/AAAAMMDD.txt`, **antes** de repartirlo |
-| **Normaliza** | métrico e imperial, una sola vez, para que ninguna receta haga cuentas propias |
-| **Reparte** | a todos los destinos en paralelo, con intervalo mínimo y reintentos por destino |
-| **Publica** | los sensores a Home Assistant por MQTT con auto-descubrimiento y LWT |
-| **Vigila** | una entidad por destino: si falla, qué contestó y cuánto tardó |
-| **Se administra** | desde un panel web, o desde la línea de comandos contra su API |
+| `PUERTO_HOST` | Por dónde lo abrís y a dónde apuntás los gateways. Default 8088 |
+| `RUTA_DATOS` | Dónde se guarda todo. Default `./datos` |
+| `ADMIN_USUARIO` / `ADMIN_CLAVE` | El administrador inicial. Vacío = te lo pide el panel |
+| `MQTT_*` | Home Assistant. Vacío = el puente funciona igual, sin publicar |
+| `UID_DATOS` / `GID_DATOS` | Si tu sistema no deja hacer `chown` en el volumen |
+| `TZ` | La hora del registro |
+| `SECO=1` | Recibe y archiva, no manda a ningún lado. Para el primer arranque |
+
+---
+
+## Apuntar una estación
+
+En la app **WSView Plus**, o en la interfaz web del gateway:
+
+**Weather Services → Customized → Enable**
+
+```
+Protocol Type Same As :  Ecowitt
+Server IP / Hostname  :  la IP de tu servidor
+Path                  :  /data/report
+Port                  :  8088
+Upload Interval       :  60
+```
+
+Y ya está. **No hay que darla de alta en ningún lado:** cada envío trae un `PASSKEY` que
+identifica al gateway, y la primera vez que llega uno desconocido el puente crea la estación
+solo y la muestra en el panel. Ponele nombre y encendela.
+
+La ruta da igual, el puente acepta cualquiera. `Protocol Type Same As: Wunderground` también
+funciona, pero manda menos campos: con **Ecowitt** llegan los sensores extra —humedad de
+tierra, calidad de aire, rayos, baterías—.
+
+---
+
+## Varias estaciones
+
+Apuntá todos los gateways que quieras al mismo puerto. Cada uno aparece por separado.
+
+- **Cada estación tiene su propia carpeta de archivo**, `datos/<id>/AAAAMMDD.txt`. No se
+  mezclan.
+- **Cada estación es un aparato distinto en Home Assistant**, con sus sensores.
+- **Un destino pertenece a una estación, o a todas.** Un destino comodín —"todas las
+  estaciones"— sirve para un archivo central o un webhook que guarda todo; sin él, agregar una
+  estación obligaría a duplicar cada destino genérico.
+- **Un comodín lleva un reloj por estación**, no uno compartido. Si tiene un intervalo mínimo de
+  10 minutos y hay tres estaciones, cada una manda cada 10 minutos — no una de cada tres.
+
+**Una estación nueva nace apagada**, y mientras esté apagada el puente **archiva sus datos pero
+no los manda a ningún lado**. Es lo único seguro para algo que apareció solo: no se pierde el
+dato, y no se publica sin permiso.
+
+Si dos estaciones llegaran sin PASSKEY —sólo pasa con el protocolo Wunderground— hay que darles
+rutas distintas en el gateway (`/data/report/patio` y `/data/report/quinta`) para poder
+distinguirlas.
+
+---
+
+## Quién puede entrar
+
+**No hay contraseña de fábrica.** Mientras no exista ningún usuario, el panel sólo muestra la
+pantalla de crear el administrador: no hay nada que ver hasta que haya un dueño. Una contraseña
+de fábrica es una puerta abierta en todas las instalaciones del mundo, y el que la instaló cree
+que la cerró.
+
+Dos roles:
+
+| | |
+|---|---|
+| **admin** | Ve todo y cambia todo: estaciones, destinos, credenciales, usuarios |
+| **mirar** | Ve el estado y los datos. No cambia nada ni ve la lista de usuarios |
+
+El administrador crea los demás usuarios desde **Ajustes → Usuarios**.
+
+**Si perdés la contraseña:** poné `ADMIN_RESET=1` en el `.env` con `ADMIN_USUARIO` y
+`ADMIN_CLAVE`, reiniciá el contenedor, y sacalo después. Queda anotado en el registro, porque un
+reseteo silencioso es indistinguible de alguien entrando por la ventana.
+
+**Lo que no protege:** la recepción de datos no pide nada, y no puede — un gateway Ecowitt no
+sabe iniciar sesión. **Esto va en una red local, nunca expuesto a internet.** El PASSKEY viaja
+en claro y cualquiera que llegue al puerto puede inyectar una lectura.
+
+---
+
+## El panel
+
+**Observación** — la última lectura de la estación elegida, con un gráfico de las últimas horas,
+la tabla de destinos con latencia y resultado, y el registro de eventos en vivo.
+
+**Estaciones** — bautizarlas, encenderlas, apagarlas, borrarlas.
+
+**Destinos** — alta, edición y borrado. Se elige el servicio de una lista y **el formulario se
+arma solo** con las credenciales que ese servicio pide, más a qué estación pertenece.
+
+**Ajustes** — usuarios, broker MQTT y nombre del nodo.
+
+Dos cosas que hace a propósito:
+
+- **Un destino nuevo se guarda apagado.** Primero se lo prueba con **Probar** y recién después
+  se lo enciende. Uno que arranca prendido puede estar mandando mal durante días.
+- **El panel nunca devuelve una credencial.** Los campos de contraseña llegan vacíos y guardar
+  con uno en blanco significa *dejá la que estaba*, no *borrala*.
 
 ### El archivo crudo es la mitad del valor
 
@@ -46,110 +166,25 @@ en disco.
 
 ---
 
-## Levantarlo
-
-### En un Synology (Container Manager)
-
-```
-node scripts/ecowitt/desplegar-nas.mjs --ver     dice qué haría, sin escribir
-node scripts/ecowitt/desplegar-nas.mjs           copia todo a //NAS/docker/ecowitt/
-```
-
-Después, en el NAS: **Container Manager → Proyecto → Crear**, ruta `docker/ecowitt`, fuente
-`docker-compose.yml`.
-
-### En cualquier otro lado
-
-El contexto de construcción no es el repositorio: los archivos del puente están en
-`scripts/ecowitt/` pero `_mqtt.mjs` viene de `scripts/garnet/`, porque es el mismo cliente que
-usa la alarma y no tiene sentido mantener dos copias. Se arma con:
-
-```
-node scripts/ecowitt/desplegar-nas.mjs --armar ./build
-cd build && docker compose up -d
-```
-
-### Sin Docker, para probar
-
-```
-node scripts/ecowitt/receptora.mjs --puerto 8088 --sin-mqtt
-node scripts/ecowitt/probar.mjs                    la prueba de punta a punta
-```
-
-`--sin-mqtt` no es un detalle: sin esa bandera, una prueba se conecta al broker de verdad y
-crea entidades falsas en Home Assistant que después hay que borrar a mano. Ya pasó.
-
----
-
-## Apuntar la estación
-
-En la app **WSView Plus**, o en la interfaz web del gateway:
-
-**Weather Services → Customized → Enable**
-
-```
-Protocol Type Same As :  Ecowitt
-Server IP / Hostname  :  la IP del NAS      (ej. TU_IP_LAN)
-Path                  :  /data/report
-Port                  :  8088
-Upload Interval       :  60
-```
-
-La ruta da igual: el puente acepta cualquiera. `/data/report` es la que usa el gateway por
-defecto y la que conviene dejar para que se parezca a lo que documenta Ecowitt.
-
-`Protocol Type Same As: Wunderground` también funciona, pero manda menos campos. Con **Ecowitt**
-llegan los sensores extra: humedad de tierra, calidad de aire, rayos, baterías.
-
----
-
-## El panel
-
-`http://IP-del-NAS:8088/`
-
-**Monitor** — la última lectura, un gráfico de las últimas horas, la tabla de destinos con
-último intento, resultado y latencia, y el registro de eventos en vivo.
-
-**Destinos** — alta, edición, encendido y borrado. Se elige el servicio de una lista y se cargan
-sus credenciales; el formulario se arma solo a partir de la receta.
-
-**Ajustes** — broker MQTT y nombre de la estación.
-
-Dos cosas que hace a propósito:
-
-- **Un destino nuevo se guarda apagado.** Primero se lo prueba con **Probar** y recién después
-  se lo enciende. Uno que arranca prendido puede estar mandando mal durante días.
-- **El panel nunca devuelve una credencial.** Los campos de contraseña llegan vacíos y guardar
-  con uno en blanco significa *dejá la que estaba*, no *borrala*.
-
-### Clave del panel
-
-Opcional, con `PANEL_CLAVE` en el `docker-compose.yml`. Sin ella el panel queda abierto a quien
-esté en la red de casa, que es aceptable en una LAN. **Esto no va nunca expuesto a internet:**
-el protocolo Ecowitt no tiene autenticación y el PASSKEY viaja en claro.
-
----
-
 ## Servicios que sabe hablar
 
 | Receta | Unidades | Credenciales | Estado |
 |---|---|---|---|
-| `homeassistant` | reenvía el cuerpo tal cual | URL de HA + ID del webhook | verificado |
+| `homeassistant` | reenvía el cuerpo tal cual | URL de HA + ID del webhook | verificada |
 | `windy` | °C, m/s, pascales, mm | API key | sin verificar |
 | `windguru` | °C, nudos, hPa | UID + contraseña (md5 con sal) | sin verificar |
 | `wunderground` | °F, mph, inHg | Station ID + key | sin verificar |
 | `pwsweather` | °F, mph, inHg | Station ID + API key | sin verificar |
 | `wow` | °F, mph, inHg | Site ID + clave de 6 dígitos | sin verificar |
 | `weathercloud` | todo ×10, en la ruta | Weathercloud ID + key | sin verificar |
-| `webhook` | JSON con todos los campos | URL + bearer opcional | verificado |
+| `webhook` | JSON con todos los campos | URL + bearer opcional | verificada |
 
 **"Sin verificar" quiere decir que la receta se escribió leyendo la documentación del servicio
 pero no se probó contra el servicio real.** El panel lo marca en amarillo. Es preferible a que
-parezca que anda: en esta instalación ya pasó ocho veces que algo figurara prolijo en una lista
-y nunca se hubiera disparado.
+parezca que anda.
 
 **Ambient Weather no tiene receta propia**, y no es un olvido: su red no publica un punto de
-entrada para estaciones de terceros. Va por `webhook` el día que uno tenga una URL real.
+entrada para estaciones de terceros. Va por `webhook` el día que haya una URL real.
 
 ### Agregar un servicio nuevo
 
@@ -164,6 +199,7 @@ escribir código:
 {
   "nombre": "Servicio raro",
   "tipo": "plantilla",
+  "estacion": "patio",
   "url": "https://ejemplo.com/api?t={temp_ext}&v={viento}&clave=XXXX",
   "metodo": "GET",
   "intervalo_min": 300
@@ -174,19 +210,18 @@ escribir código:
 
 ## Home Assistant
 
-El puente publica por MQTT con auto-descubrimiento: los sensores aparecen solos, agrupados en un
-aparato llamado *Estación meteorológica*.
+Los sensores aparecen solos: **un aparato por estación**, más uno del nodo.
 
-**Se anuncia sólo lo que llegó.** Un sensor de tierra que no está no genera una entidad vacía; si
-mañana se conecta uno, su entidad aparece en el envío siguiente.
+**Se anuncia sólo lo que llegó.** Un sensor de tierra que no está no genera una entidad vacía;
+si mañana se conecta uno, aparece en el envío siguiente.
 
-Además de los sensores meteorológicos, publica el diagnóstico:
+Además de los sensores, publica el diagnóstico:
 
 | Entidad | Para qué |
 |---|---|
-| `Estación sin reportar` | **la que más falta hace.** ON si dejaron de llegar envíos |
-| `Algún destino caído` | ON si cualquier destino activo está fallando |
-| `<destino> · problema` | por destino: si el último envío falló |
+| `<estación> · Sin reportar` | **la que más falta hace.** ON si esa estación dejó de mandar |
+| `Algo no está funcionando` | del nodo: ON si cualquier estación o destino está mal |
+| `<destino> · problema` | por destino **y por estación**: si el último envío falló |
 | `<destino> · estado` | qué contestó: `ok`, `HTTP 401 · invalid password`, `sin respuesta` |
 | `<destino> · latencia` | cuánto tardó, en ms |
 | `<destino> · último envío OK` | cuándo fue la última vez que le entró bien |
@@ -195,61 +230,32 @@ Todo cuelga de un tema de disponibilidad con **testamento MQTT**: si el puente s
 broker publica `offline` por él y las entidades quedan *no disponibles* en vez de congeladas en
 su último valor.
 
-Eso es exactamente lo que faltó cuando se cayó la WS2900 el 15/08: los sensores no dijeron "no
-sé", se quedaron quietos, y nadie se enteró durante días.
-
-### Configurar el broker
-
-Tres maneras, gana la primera que esté completa:
-
-1. **Desde el panel** (Ajustes → MQTT). Queda en `config.json`.
-2. **Variables de entorno**: `MQTT_HOST`, `MQTT_PUERTO`, `MQTT_USUARIO`, `MQTT_CLAVE`. Es lo que
-   genera el despliegue en `mqtt.env`, leyendo la clave de la configuración de HA sin
-   imprimirla en ningún lado.
-3. **La configuración de Home Assistant**, si se monta su `/config`.
-
-Los cambios de MQTT se aplican al reiniciar el contenedor.
-
----
-
-## Desde la línea de comandos
-
-```
-node scripts/ecowitt/destinos.mjs                          qué hay y cómo le va a cada uno
-node scripts/ecowitt/destinos.mjs --recetas                servicios disponibles y su formato
-node scripts/ecowitt/destinos.mjs --agregar windy.json     alta o edición
-node scripts/ecowitt/destinos.mjs --probar "Windy"         le manda la última lectura real
-node scripts/ecowitt/destinos.mjs --activar "Windy"
-node scripts/ecowitt/destinos.mjs --borrar "Windy"
-```
-
-**Habla con la API del panel, no con el archivo.** Editar `config.json` por Samba también
-funcionaría —el puente lo relee cada 60 segundos— pero serían dos programas escribiendo el mismo
-JSON, y tarde o temprano uno pisa el cambio del otro. Por la API hay un solo escritor, se
-validan las credenciales, y al borrar un destino se retiran también sus entidades de Home
-Assistant.
-
-El destino nuevo se pasa **en un archivo**, nunca por la línea de comandos: estas credenciales
-llevan `&`, `?` y `$`, y el shell ya se comió parte de un texto tres veces en este proyecto.
+Eso es exactamente lo que falta cuando una estación se cae y nadie se entera: los sensores no
+dicen "no sé", se quedan quietos.
 
 ---
 
 ## La API
 
+Todo lo que hace el panel pasa por acá. Las lecturas piden sesión; las escrituras, rol admin.
+
 | | |
 |---|---|
-| `GET /` | el panel |
-| `GET /salud` | sonda para Docker. 503 si la estación dejó de reportar |
-| `GET /api/estado` | última lectura, destinos, historial y registro |
-| `GET /api/recetas` | catálogo de servicios y qué credenciales pide cada uno |
-| `GET /api/config` | configuración **sin credenciales** |
-| `POST /api/config` | ajustes y MQTT |
-| `POST /api/destino` | alta o edición: `{ anterior, destino }` |
-| `DELETE /api/destino?nombre=` | borra y retira sus entidades de HA |
-| `POST /api/probar` | `{ nombre }` — manda la última lectura real a ese destino |
+| `GET /salud` | Sonda para Docker. Sin sesión. 503 si alguna estación dejó de reportar |
+| `GET /api/sesion` | Si está instalado, quién sos y qué podés |
+| `POST /api/instalar` | Crea el administrador. Sólo mientras no haya ningún usuario |
+| `POST /api/entrar` · `/api/salir` | Sesión |
+| `GET /api/estado` | Nodo, estaciones con su última lectura, destinos y registro |
+| `GET /api/recetas` | Catálogo de servicios y qué credenciales pide cada uno |
+| `GET /api/config` | Configuración **sin credenciales** |
+| `POST /api/config` | MQTT y ajustes del nodo |
+| `POST /api/estacion` | Renombrar o encender. `DELETE ?id=` para borrar |
+| `POST /api/destino` | Alta o edición. `DELETE ?nombre=` para borrar |
+| `POST /api/usuarios` | Alta y cambio de rol. `DELETE ?nombre=` |
+| `POST /api/probar` | Manda la última lectura real a un destino |
 
-`POST /api/probar` **nunca inventa un dato**: si todavía no llegó ningún envío de la estación,
-lo dice y no manda nada. Un dato falso publicado en Windy o en Home Assistant queda ahí.
+`POST /api/probar` **nunca inventa un dato**: si todavía no llegó ningún envío, lo dice y no
+manda nada. Un dato falso publicado en Windy o en Home Assistant queda ahí.
 
 ---
 
@@ -257,53 +263,38 @@ lo dice y no manda nada. Un dato falso publicado en Windy o en Home Assistant qu
 
 | | |
 |---|---|
-| `receptora.mjs` | el servidor: recibe, archiva, reparte, publica |
+| `receptora.mjs` | el servidor: recibe, identifica la estación, archiva, reparte, publica |
 | `_normalizar.mjs` | el envío crudo a campos con nombre y unidad. **Se parsea una vez** |
 | `_recetas.mjs` | una receta por servicio: URL, unidades y credenciales |
 | `_destinos.mjs` | cómo se manda a cada uno: intervalos, reintentos, timeouts |
 | `_sensores.mjs` | qué entidad crea cada campo en Home Assistant |
-| `_config.mjs` | `config.json`: lectura, escritura atómica, respaldos, secretos |
-| `_panel.mjs` | las rutas del panel y su API |
+| `_config.mjs` | `config.json`: escritura atómica, respaldos, migración, secretos |
+| `_usuarios.mjs` | contraseñas (scrypt), sesiones (cookie firmada), roles |
+| `_panel.mjs` | las rutas del panel, y quién puede qué |
 | `_pagina.mjs` | el HTML, el estilo y el guion. Sin librerías, ni por CDN |
 | `_registro.mjs` | el registro en memoria, con techo |
 | `probar.mjs` | la prueba de punta a punta contra servicios falsos |
-| `destinos.mjs` | administración desde la terminal |
-| `desplegar-nas.mjs` | arma la carpeta y la copia al NAS |
 | `entrada.sh` | acomoda el dueño del volumen y baja de privilegios |
-| `diagnosticar.mjs` | por qué no levanta: le pregunta al DSM |
+| `desplegar-nas.mjs` | arma la carpeta y la copia (o `--armar` en local) |
 
 ---
 
 ## Si no levanta
 
-```
-node scripts/ecowitt/diagnosticar.mjs
-```
-
-Le pregunta al DSM el estado del contenedor, su código de salida y su registro. Hace falta el
-cliente de Synology (`scripts/synology/_api.mjs`) con sus credenciales.
-
-**Los dos casos que ya pasaron:**
-
 | Síntoma | Causa |
 |---|---|
-| Muere en menos de 1 s, `ExitCode 1`, en bucle | El volumen `datos/` no es escribible por el usuario del contenedor. Lo resuelve `entrada.sh`, que arranca como root, hace `chown` y baja a `node` con `su-exec` |
-| La pestaña Registro aparece vacía | El compose estaba anulando el driver de registro. Sin eso, el DSM no lo indexa. Ya no lo anula |
-
-El puente arranca **como root un instante** —lo justo para acomodar el dueño del volumen, que
-lo crea el despliegue con el usuario del NAS y nunca coincide con el uid de la imagen— y
-enseguida baja a un usuario sin privilegios. Fijar `user:` en el compose también funcionaría,
-pero con el uid de *tu* instalación: cualquiera que copiara esto vería el bucle sin ninguna
-pista.
+| Muere en menos de 1 s, en bucle | El volumen no es escribible por el usuario del contenedor. Lo resuelve `entrada.sh`; si tu sistema no deja hacer `chown`, poné `UID_DATOS` y `GID_DATOS` en el `.env` |
+| La pestaña Registro aparece vacía | Algún `logging:` en el compose. Este no lo anula justamente por eso |
+| "Not found" al arrancar | `entrada.sh` con fin de línea CRLF. El Dockerfile le pasa un `sed`, y el `.gitattributes` lo evita en origen |
 
 ---
 
 ## Lo que no hace
 
-- **No tiene autenticación en la recepción.** El protocolo Ecowitt no la tiene: el PASSKEY viaja
-  en claro. Esto va sólo en la red de casa.
+- **No tiene autenticación en la recepción.** El protocolo Ecowitt no la tiene. Red local, nunca
+  internet.
 - **No reintenta un envío perdido más tarde.** Se reintenta un rato y se abandona ese envío: la
-  estación va a mandar otro en un minuto, y una cola sin techo termina comiéndose la memoria del
+  estación manda otro en un minuto, y una cola sin techo termina comiéndose la memoria del
   contenedor. Lo que no se puede perder ya está en el archivo crudo.
 - **No sirve el historial completo.** El gráfico del panel son las últimas horas en memoria y se
   borra al reiniciar. El histórico serio va en Home Assistant, o se lee del archivo crudo.

@@ -11,10 +11,12 @@
 // llena, lo más viejo se cae solo.
 
 const MAX_EVENTOS = 300
-const MAX_LECTURAS = 720   // 12 horas a un envío por minuto
+const MAX_LECTURAS = 720   // 12 horas a un envío por minuto, POR ESTACION
 
 const eventos = []
-const lecturas = []
+// Un anillo por estación. Con varias estaciones un anillo compartido mezclaría las curvas de
+// todas en un mismo gráfico, y la de la que reporta más seguido taparía a las otras.
+const lecturas = new Map()
 
 /**
  * Anota un evento. nivel: 'info' | 'ok' | 'aviso' | 'error'.
@@ -34,8 +36,10 @@ export function anotar (nivel, texto) {
 }
 
 /** Guarda unos pocos valores de cada lectura, para el gráfico del panel. */
-export function anotarLectura (campos) {
-  lecturas.push({
+export function anotarLectura (idEstacion, campos) {
+  if (!lecturas.has(idEstacion)) lecturas.set(idEstacion, [])
+  const l = lecturas.get(idEstacion)
+  l.push({
     t: campos.fecha_iso || new Date().toISOString(),
     temp: campos.temp_ext ?? null,
     hum: campos.hum_ext ?? null,
@@ -43,8 +47,11 @@ export function anotarLectura (campos) {
     presion: campos.presion_rel ?? null,
     lluvia: campos.lluvia_dia ?? null,
   })
-  if (lecturas.length > MAX_LECTURAS) lecturas.shift()
+  if (l.length > MAX_LECTURAS) l.shift()
 }
 
+/** Se olvida el historial de una estación borrada, para que no quede ocupando memoria. */
+export function olvidarLecturas (idEstacion) { lecturas.delete(idEstacion) }
+
 export const verEventos = (n = 80) => eventos.slice(-n).reverse()
-export const verLecturas = () => lecturas
+export const verLecturas = (idEstacion) => lecturas.get(idEstacion) || []

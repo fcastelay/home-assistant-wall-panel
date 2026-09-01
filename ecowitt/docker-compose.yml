@@ -1,72 +1,69 @@
-# Puente Ecowitt: recibe los datos de la estación y los reparte.
+# Puente Ecowitt: recibe una o varias estaciones y las reparte a los servicios que quieras.
 #
-# En el NAS se levanta desde Container Manager -> Proyecto -> Crear, apuntando a esta carpeta.
-# En cualquier otro lado: docker compose up -d
+#     cp .env.ejemplo .env      y cambiá lo que necesites
+#     docker compose up -d
 #
-# NO LLEVA network_mode: host, a diferencia de la receptora de la alarma. La estación manda a un
-# puerto TCP normal —no hay descubrimiento ni broadcast— así que alcanza con publicarlo, y es
-# bastante menos invasivo que compartir la red entera del NAS.
+# En un Synology: Container Manager -> Proyecto -> Crear, apuntando a esta carpeta.
+#
+# TODO SALE DEL .env, CON VALORES POR DEFECTO. Se puede levantar sin escribir una sola variable
+# y funciona; y se puede cambiar el puerto, la ruta de los datos, el usuario y el broker sin
+# tocar este archivo. Es la diferencia entre un proyecto que anda en la casa de quien lo
+# escribió y uno que anda en la de cualquiera.
+#
+# NO LLEVA network_mode: host. Las estaciones mandan a un puerto TCP normal —no hay
+# descubrimiento ni broadcast— así que alcanza con publicarlo, y es bastante menos invasivo que
+# compartir la red entera de la máquina.
 
 services:
   ecowitt:
     build: .
     image: ecowitt-puente:local
-    container_name: ecowitt-puente
+    container_name: ${NOMBRE_CONTENEDOR:-ecowitt-puente}
     restart: always
 
-    # QUIEN CORRE EL PROCESO, y por que es una variable y no un numero fijo.
-    #
-    # Por defecto arranca como root y baja a `node` en el arranque (ver entrada.sh), despues de
-    # acomodar el dueño del volumen. Eso funciona en cualquier instalacion.
-    #
-    # Pero si el .env de al lado define UID_DATOS, se corre DIRECTO como ese usuario. Sirve
-    # para el caso en que uno no puede reconstruir la imagen —el 01/09/2026, en este NAS, el
-    # boton Compilar de Container Manager no aparecia y la API no rehacia la imagen— y alcanza
-    # con arrancar el contenedor con el uid que ya es dueño de `datos/`.
-    #
-    # El .env lo escribe el despliegue con el numero medido. No se versiona: es de cada NAS.
+    # QUIEN CORRE EL PROCESO. Por defecto root, que baja solo a un usuario sin privilegios en el
+    # arranque después de acomodar el dueño del volumen (ver entrada.sh). Si tu sistema no deja
+    # hacer ese chown, poné UID_DATOS y GID_DATOS en el .env y corre directo con ellos.
     user: "${UID_DATOS:-0}:${GID_DATOS:-0}"
 
     ports:
-      # Un solo puerto: por acá entra la estación y por acá se abre el panel.
-      - "8088:8088"
+      # Un solo puerto: por acá entran las estaciones y por acá se abre el panel.
+      - "${PUERTO_HOST:-8088}:${PUERTO:-8088}"
 
     volumes:
-      # LO UNICO PERSISTENTE. Adentro van tres cosas que no se pueden perder:
-      #   config.json          los destinos y sus credenciales
-      #   AAAAMMDD.txt         el archivo crudo, un día por archivo
-      #   respaldos/           las versiones anteriores de config.json
-      # El código va dentro de la imagen, no montado: el contenedor no tiene por qué poder
-      # reescribir su propio programa.
-      - ./datos:/app/datos
+      # LO UNICO PERSISTENTE. El código va dentro de la imagen, no montado: el contenedor no
+      # tiene por qué poder reescribir su propio programa.
+      - ${RUTA_DATOS:-./datos}:/app/datos
 
     environment:
-      - PUERTO=8088
+      - PUERTO=${PUERTO:-8088}
       - ARCHIVO=/app/datos
-      # Zona horaria: sin esto el log del contenedor sale en UTC y hay que restar tres horas
-      # mentalmente cada vez que uno busca a qué hora pasó algo.
-      - TZ=America/Argentina/Buenos_Aires
+      - TZ=${TZ:-UTC}
 
-      # CLAVE DEL PANEL (opcional). Si se define, el panel y su API la piden.
-      #
-      # Sin ella el panel queda abierto a quien esté en la red de casa. Es aceptable en una LAN
-      # y es lo que hace que sirva para mirarlo rápido; ponerla es razonable si la red tiene
-      # invitados. **Esto no va nunca expuesto a internet**: el protocolo Ecowitt no tiene
-      # autenticación y el PASSKEY viaja en claro.
-      # - PANEL_CLAVE=algo-largo
+      # El administrador inicial. Ver .env.ejemplo: sólo se aplican si todavía no hay usuarios.
+      - ADMIN_USUARIO=${ADMIN_USUARIO:-}
+      - ADMIN_CLAVE=${ADMIN_CLAVE:-}
+      - ADMIN_RESET=${ADMIN_RESET:-}
+      - PANEL_ABIERTO=${PANEL_ABIERTO:-}
 
-    # Las credenciales del broker MQTT. Se pueden cargar de tres maneras, y gana la primera:
-    #   1. desde el panel web (queda en config.json)
-    #   2. desde este archivo, que el despliegue genera con la clave de HA sin imprimirla
-    #   3. desde la configuración de Home Assistant, si se monta su /config
-    env_file:
-      - ./mqtt.env
+      # Home Assistant, opcional. Sin esto el puente funciona igual: recibe, archiva y reparte.
+      - MQTT_HOST=${MQTT_HOST:-}
+      - MQTT_PUERTO=${MQTT_PUERTO:-1883}
+      - MQTT_USUARIO=${MQTT_USUARIO:-}
+      - MQTT_CLAVE=${MQTT_CLAVE:-}
+      - RAIZ_MQTT=${RAIZ_MQTT:-estacion}
+      - PREFIJO_HA=${PREFIJO_HA:-homeassistant}
+      - NOMBRE_NODO=${NOMBRE_NODO:-Puente Ecowitt}
 
-    # NO SE ANULA EL REGISTRO, y la primera version de este archivo si lo hacia.
+      # Modos de prueba.
+      - SECO=${SECO:-}
+      - SIN_MQTT=${SIN_MQTT:-}
+
+    # NO SE ANULA EL REGISTRO, y la primera versión de este archivo sí lo hacía.
     #
-    # Poner `logging: driver: json-file` parecia prolijo —evita que un envio por minuto llene
-    # el volumen— pero el 01/09/2026 tuvo un costo que no valia la pena: con el driver
-    # cambiado, **la pestaña Registro de Container Manager aparece vacia**. El contenedor se
-    # moria en bucle y la unica pista posible estaba justamente ahi.
+    # Poner `logging: driver: json-file` parecía prolijo —evita que un envío por minuto llene el
+    # volumen— pero el 01/09/2026 tuvo un costo que no valía la pena: con el driver cambiado,
+    # **la pestaña Registro de Container Manager aparece vacía**. El contenedor se moría en
+    # bucle y la única pista posible estaba justamente ahí.
     #
-    # Un registro que no se puede leer no sirve de nada. La rotacion la maneja el DSM.
+    # Un registro que no se puede leer no sirve de nada. La rotación la maneja el sistema.

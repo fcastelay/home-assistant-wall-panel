@@ -36,46 +36,59 @@ const PUERTO = 8088
 const PROPIOS = [
   'receptora.mjs', '_normalizar.mjs', '_destinos.mjs', '_recetas.mjs',
   '_sensores.mjs', '_config.mjs', '_panel.mjs', '_pagina.mjs', '_registro.mjs',
+  '_usuarios.mjs',
 ]
 // El .dockerignore va SI O SI: sin él, el contexto de construcción se lleva datos/ y mqtt.env
 // —o sea las credenciales de todos los destinos y la clave del broker— al motor de Docker, y
 // en una imagen que después se comparta quedan adentro.
-const SUELTOS = ['Dockerfile', '.dockerignore', 'docker-compose.yml', 'README.md', 'entrada.sh']
+const SUELTOS = ['Dockerfile', '.dockerignore', 'docker-compose.yml', 'README.md', 'entrada.sh',
+  '.env.ejemplo']
 const COMPARTIDOS = [[path.join(AQUI, '..', 'garnet', '_mqtt.mjs'), '_mqtt.mjs']]
 
 /**
- * Escribe mqtt.env leyendo la clave del broker de la propia configuración de Home Assistant.
+ * Escribe el `.env` con lo que hace falta para este NAS, leyendo lo que se pueda medir.
  *
- * LA CLAVE VA DIRECTO AL ARCHIVO, sin pasar por pantalla ni por el registro de la sesión. Misma
- * lección que en _secreto.mjs.
+ * LA CLAVE DEL BROKER VA DIRECTO AL ARCHIVO, sin pasar por pantalla ni por el registro de la
+ * sesión. Misma lección que en _secreto.mjs.
  *
- * SE ESCRIBE SIEMPRE, aunque no se pueda leer la clave: el docker-compose.yml lo declara en
- * env_file, y si el archivo falta el contenedor no arranca — con un error que no dice nada
- * sobre MQTT y manda a buscar el problema al lado equivocado.
+ * NO SE PISA UN .env QUE YA EXISTA: ahí puede estar la contraseña del administrador, puesta a
+ * mano. Sobrescribirlo en cada despliegue la borraría justo cuando todo funcionaba.
  */
-const escribirMqttEnv = (carpeta) => {
-  const cfg = '//TU_HOST_HA/config/.storage/core.config_entries'
-  const cabecera = [
+const escribirEnv = (carpeta) => {
+  const destino = path.join(carpeta, '.env')
+  if (fs.existsSync(destino)) return { ya: true }
+
+  const lineas = [
     '# Generado por scripts/ecowitt/desplegar-nas.mjs. NO se versiona.',
-    '# También se puede cargar el broker desde el panel del puente (Ajustes -> MQTT).',
+    '# Lo que falte, mirá .env.ejemplo: está todo explicado ahí.',
+    '',
+    'PUERTO_HOST=' + PUERTO,
+    'TZ=America/Argentina/Buenos_Aires',
+    '',
+    '# El dueño de la carpeta de datos en este NAS, medido el 01/09/2026 con la API del DSM.',
+    '# Sin esto el contenedor no puede escribir y muere en bucle.',
+    'UID_DATOS=1026',
+    'GID_DATOS=100',
+    '',
   ]
-  let lineas = cabecera.concat(['# No se pudo leer la configuración de HA al desplegar.', ''])
+  let conClave = false
   try {
+    const cfg = '//TU_HOST_HA/config/.storage/core.config_entries'
     if (fs.existsSync(cfg)) {
       const m = JSON.parse(fs.readFileSync(cfg, 'utf8')).data.entries.find(e => e.domain === 'mqtt')
       if (m) {
-        lineas = cabecera.concat([
-          'MQTT_HOST=TU_HOST_HA',
+        lineas.push('MQTT_HOST=TU_HOST_HA',
           'MQTT_PUERTO=' + (m.data.port || 1883),
           'MQTT_USUARIO=' + m.data.username,
-          'MQTT_CLAVE=' + m.data.password,
-          '',
-        ])
-        return { ruta: path.join(carpeta, 'mqtt.env'), texto: lineas.join('\n'), conClave: true }
+          'MQTT_CLAVE=' + m.data.password, '')
+        conClave = true
       }
     }
   } catch {}
-  return { ruta: path.join(carpeta, 'mqtt.env'), texto: lineas.join('\n'), conClave: false }
+  lineas.push('# El administrador del panel. Si lo dejás vacío, el panel te lo pide la primera vez.',
+    'ADMIN_USUARIO=', 'ADMIN_CLAVE=', '')
+  fs.writeFileSync(destino, lineas.join('\n'))
+  return { conClave }
 }
 
 const main = () => {
@@ -92,7 +105,7 @@ const main = () => {
     if (!fs.existsSync(origen)) { console.error('   FALTA ' + origen); process.exit(1) }
     console.log('   ' + nombre.padEnd(24) + 'compartido con garnet/')
   }
-  console.log('   mqtt.env                 generado (con la clave, sin mostrarla)')
+  console.log('   .env                     generado (con la clave del broker, sin mostrarla)')
 
   if (VER) {
     console.log('\n   Correr sin --ver para copiar.')
@@ -114,12 +127,22 @@ const main = () => {
     console.log('\n   LEEME.md de la versión anterior borrado (lo reemplaza README.md)')
   }
 
-  const env = escribirMqttEnv(DESTINO)
-  fs.writeFileSync(env.ruta, env.texto)
-  if (!env.conClave) {
+  const env = escribirEnv(DESTINO)
+  if (env.ya) console.log('\n   .env YA EXISTE: no se toca')
+  else if (!env.conClave) {
     console.log('\n   OJO: no se pudo leer la clave del broker de HA.')
-    console.log('   El archivo se creó igual (si falta, el contenedor no arranca).')
-    console.log('   Cargar el broker desde el panel: Ajustes -> MQTT.')
+    console.log('   Cargala desde el panel: Ajustes -> MQTT.')
+  }
+
+  // EL mqtt.env DE LA VERSION ANTERIOR NO SE BORRA, aunque ya no lo lea nadie.
+  //
+  // El compose viejo lo declara en `env_file`, y si el archivo falta **el contenedor que está
+  // corriendo no vuelve a arrancar**: no en ese momento, sino la próxima vez que se reinicie el
+  // NAS, que es cuando nadie está mirando. Se avisa y se deja que lo borre una persona, después
+  // de recrear el proyecto.
+  if (fs.existsSync(path.join(DESTINO, 'mqtt.env'))) {
+    console.log('\n   mqtt.env sigue ahí a propósito: el proyecto ANTERIOR lo necesita para')
+    console.log('   arrancar. Se puede borrar después de recrear el proyecto con el compose nuevo.')
   }
 
   // LA CONFIGURACION NO SE PISA NUNCA: ahí viven las credenciales de todos los destinos, y

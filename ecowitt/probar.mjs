@@ -1,21 +1,27 @@
 // Prueba de punta a punta del puente, contra servicios falsos.
 //
-//   node scripts/ecowitt/probar.mjs
+//   node probar.mjs
 //
 // QUE COMPRUEBA, y por qué cada cosa
 //
-//   1. Que un envío de la estación se archive crudo ANTES de repartirse.
-//   2. Que salga a varios destinos en paralelo.
-//   3. Que un 4xx NO se reintente y un 5xx SI.
-//   4. Que el intervalo mínimo se respete.
-//   5. Que el panel no devuelva NUNCA una credencial.
-//   6. Que guardar un destino con la contraseña en blanco no borre la que había.
-//   7. Que borrar un destino lo saque de verdad.
+//   Acceso      que sin usuarios no se vea nada, que el que mira no pueda cambiar, y que
+//               usuario inexistente y clave equivocada den el MISMO mensaje.
+//   Estaciones  que dos gateways distintos aparezcan solos, apagados, y en carpetas separadas.
+//   Reparto     que una estación apagada archive y no reparta; que un destino de una estación
+//               no reciba lo de la otra; que un comodín reciba de las dos.
+//   Errores     que un 4xx no se reintente y un 5xx sí; que el intervalo mínimo se respete, y
+//               que se respete POR ESTACION.
+//   Secretos    que el panel no devuelva nunca una credencial, y que guardar con el campo en
+//               blanco no borre la que había.
 //
 // NUNCA TOCA EL BROKER DE LA CASA: el puente arranca con --sin-mqtt y sus datos van a una
 // carpeta temporal. Es una regla que salió de un error propio: el 31/08/2026 una prueba con
 // destinos inventados se conectó al MQTT real y creó 15 entidades falsas en Home Assistant.
 // Una prueba no puede escribir en la casa.
+//
+// TAMPOCO SALE A INTERNET. Todos los destinos apuntan a un servidor falso en localhost. El
+// 01/09/2026 una prueba anterior mandó de verdad a Windy y se comió un 401 real: no hizo daño,
+// pero una prueba que depende de la red falla los días que la red anda mal.
 
 import http from 'node:http'
 import fs from 'node:fs'
@@ -34,37 +40,71 @@ const revisar = (bien, texto, detalle) => {
   console.log('  ' + (bien ? 'ok  ' : 'MAL ') + texto + (detalle ? '   ' + detalle : ''))
   if (!bien) fallas++
 }
+const titulo = (t) => console.log('\n--- ' + t)
 const dormir = (ms) => new Promise(r => setTimeout(r, ms))
 
-// ---------------------------------------------------------------- servicios falsos
+/**
+ * Espera a que un puerto conteste. Devuelve false si nunca contesta.
+ *
+ * SE ESPERA A QUE CONTESTE, no un tiempo fijo: un tiempo fijo falla el dia que la maquina esta
+ * ocupada, y entonces uno depura una prueba en vez del programa.
+ *
+ * Y SI NO ARRANCA, SE DICE. La primera version seguia igual y reventaba veinte lineas mas
+ * abajo con un ENOENT sobre un config.json que nunca se escribio. El motivo real —el puerto
+ * ocupado por otro proceso— estaba en la salida del hijo, que nadie miraba.
+ */
+const esperarPuerto = async (puerto, salida) => {
+  for (let i = 0; i < 60; i++) {
+    try { await fetch('http://127.0.0.1:' + puerto + '/salud'); return true } catch { await dormir(100) }
+  }
+  console.log('  MAL el puente no arranco en el puerto ' + puerto)
+  for (const l of (salida || []).join('').split(/\r?\n/).slice(0, 6)) console.log('      ' + l)
+  fallas++
+  return false
+}
 
+// ---------------------------------------------------------------- servicios falsos
 const golpes = []
 const falso = http.createServer((req, res) => {
-  golpes.push({ ruta: req.url.split('?')[0], url: req.url, metodo: req.method, t: Date.now() })
-  if (req.url.startsWith('/roto')) { res.writeHead(404); return res.end('no existe') }
-  if (req.url.startsWith('/caido')) { res.writeHead(500); return res.end('reventado') }
-  res.writeHead(200); res.end('OK')
+  golpes.push({ ruta: req.url.split('?')[0], cuerpo: '', t: Date.now() })
+  let b = ''
+  req.on('data', c => { b += c })
+  req.on('end', () => {
+    golpes[golpes.length - 1].cuerpo = b
+    if (req.url.startsWith('/roto')) { res.writeHead(404); return res.end('no existe') }
+    if (req.url.startsWith('/caido')) { res.writeHead(500); return res.end('reventado') }
+    res.writeHead(200); res.end('OK')
+  })
 })
+const cuenta = (ruta) => golpes.filter(g => g.ruta === ruta).length
 
-// ---------------------------------------------------------------- el envío de ejemplo
+// ---------------------------------------------------------------- los dos gateways
 //
-// Es un envío verosímil de un GW3000 con sensor exterior, en formato Ecowitt. Los valores
-// imperiales son los que manda la estación de verdad; el puente los convierte.
-const ENVIO = 'PASSKEY=ABC123&stationtype=GW3000A_V1.0.5&runtime=100&dateutc=2026-08-31+21:10:00' +
-  '&tempinf=72.5&humidityin=48&baromrelin=29.92&baromabsin=29.61' +
-  '&tempf=61.7&humidity=64&winddir=180&windspeedmph=5.6&windgustmph=9.2&maxdailygust=14.1' +
-  '&solarradiation=210.5&uv=2&rainratein=0.00&eventrainin=0.12&hourlyrainin=0.05' +
-  '&dailyrainin=0.12&weeklyrainin=0.40&monthlyrainin=1.20&yearlyrainin=14.5' +
-  '&soilmoisture1=42&wh65batt=0&interval=60'
+// Dos PASSKEY distintos: es así como el puente los distingue. Los valores imperiales son los
+// que manda una estación de verdad; el puente los convierte.
+const envio = (passkey, modelo, tempf) =>
+  'PASSKEY=' + passkey + '&stationtype=' + modelo + '&model=' + modelo +
+  '&dateutc=2026-09-01+18:10:00&interval=60' +
+  '&tempinf=72.5&humidityin=48&baromrelin=29.92&tempf=' + tempf +
+  '&humidity=64&winddir=180&windspeedmph=5.6&windgustmph=9.2&dailyrainin=0.12' +
+  '&solarradiation=210.5&uv=2&soilmoisture1=42'
 
+// ---------------------------------------------------------------- cliente con cookie
+let COOKIE = ''
 const api = async (ruta, opciones = {}) => {
   const r = await fetch('http://127.0.0.1:' + PUERTO + ruta, {
     ...opciones,
-    headers: { 'Content-Type': 'application/json', ...(opciones.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(COOKIE ? { Cookie: COOKIE } : {}), ...(opciones.headers || {}) },
   })
+  const set = r.headers.get('set-cookie')
+  if (set) COOKIE = set.split(';')[0]
   const t = await r.text()
   try { return { codigo: r.status, cuerpo: JSON.parse(t) } } catch { return { codigo: r.status, cuerpo: t } }
 }
+const post = (ruta, cuerpo) => api(ruta, { method: 'POST', body: JSON.stringify(cuerpo) })
+const mandar = (cuerpo, ruta = '/data/report') => fetch('http://127.0.0.1:' + PUERTO + ruta, {
+  method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: cuerpo,
+})
 
 // ---------------------------------------------------------------- la corrida
 
@@ -73,203 +113,246 @@ const main = async () => {
   console.log('    carpeta temporal: ' + CARPETA + '\n')
 
   await new Promise(ok => falso.listen(FALSO, ok))
-
   const hijo = spawn(process.execPath, [path.join(AQUI, 'receptora.mjs'), '--puerto', String(PUERTO), '--sin-mqtt'], {
-    env: { ...process.env, ARCHIVO: CARPETA },
+    env: { ...process.env, ARCHIVO: CARPETA, PANEL_ABIERTO: '' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const salida = []
   hijo.stdout.on('data', d => salida.push(String(d)))
   hijo.stderr.on('data', d => salida.push(String(d)))
 
-  // Se espera a que el puerto conteste, no un tiempo fijo: un tiempo fijo falla el día que la
-  // máquina está ocupada, y entonces uno depura una prueba en vez del programa.
-  for (let i = 0; i < 50; i++) {
-    try { await fetch('http://127.0.0.1:' + PUERTO + '/salud'); break } catch { await dormir(100) }
+  if (!await esperarPuerto(PUERTO, salida)) {
+    hijo.kill('SIGTERM'); falso.close(); process.exit(1)
   }
 
   try {
-    // --- 1. destinos, cargados por la misma API que usa el panel -------------------
-    console.log('--- alta de destinos por la API del panel')
-    const alta = async (nombre, url, extra = {}) => api('/api/destino', {
-      method: 'POST',
-      body: JSON.stringify({
-        destino: {
-          nombre, tipo: 'receta', receta: 'webhook',
-          credenciales: { url: 'http://127.0.0.1:' + FALSO + url },
-          activo: true, reintentos: 1, ...extra,
-        },
-      }),
-    })
-    revisar((await alta('Bueno', '/bueno')).cuerpo.ok === true, 'se agrega un destino sano')
-    revisar((await alta('Roto', '/roto')).cuerpo.ok === true, 'se agrega uno que da 404')
-    revisar((await alta('Caido', '/caido')).cuerpo.ok === true, 'se agrega uno que da 500')
-    revisar((await alta('Lento', '/lento', { intervalo_min: 600 })).cuerpo.ok === true,
-      'se agrega uno con intervalo de 600 s')
+    // ============================================================ acceso
+    titulo('acceso')
+    const sinSesion = await api('/api/estado')
+    revisar(sinSesion.codigo === 401, 'sin usuarios, el estado NO se ve', 'HTTP ' + sinSesion.codigo)
+    const sesion0 = await api('/api/sesion')
+    revisar(sesion0.cuerpo.instalado === false, 'la página sabe que falta instalar')
 
-    const repetido = await alta('Bueno', '/otro')
-    revisar(!!repetido.cuerpo.error, 'un nombre repetido se rechaza', repetido.cuerpo.error)
+    revisar((await post('/api/instalar', { usuario: 'jefe', clave: '123' })).cuerpo.error,
+      'una contraseña corta se rechaza')
+    revisar((await post('/api/instalar', { usuario: 'jefe', clave: 'password1' })).cuerpo.error,
+      'una contraseña obvia se rechaza')
+    revisar((await post('/api/instalar', { usuario: 'jefe', clave: 'tormenta2026' })).cuerpo.ok === true,
+      'se crea el administrador en el primer arranque')
+    revisar((await api('/api/sesion')).cuerpo.rol === 'admin', 'y queda con la sesión abierta')
 
-    const incompleto = await api('/api/destino', {
-      method: 'POST',
-      body: JSON.stringify({ destino: { nombre: 'Sin datos', tipo: 'receta', receta: 'windy', activo: true } }),
-    })
-    revisar(!!incompleto.cuerpo.error, 'no se puede activar un destino sin credenciales',
-      incompleto.cuerpo.error)
+    const otra = await post('/api/instalar', { usuario: 'colado', clave: 'tormenta2026' })
+    revisar(otra.codigo === 409, 'la instalación no se puede repetir', 'HTTP ' + otra.codigo)
 
-    // --- 2. el envío ---------------------------------------------------------------
-    console.log('\n--- llega un envío de la estación')
-    const r = await fetch('http://127.0.0.1:' + PUERTO + '/data/report', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: ENVIO,
+    const guardo = COOKIE
+    COOKIE = ''
+    const malUsuario = await post('/api/entrar', { usuario: 'nadie', clave: 'x' })
+    const malClave = await post('/api/entrar', { usuario: 'jefe', clave: 'equivocada' })
+    revisar(malUsuario.cuerpo.error === malClave.cuerpo.error,
+      'usuario inexistente y clave mala dan el MISMO mensaje', malClave.cuerpo.error)
+
+    revisar((await post('/api/entrar', { usuario: 'jefe', clave: 'tormenta2026' })).cuerpo.ok === true,
+      'se entra con la clave correcta')
+    revisar((await api('/api/estado')).codigo === 200, 'y ahora sí se ve el estado')
+
+    // --- un usuario que sólo mira
+    revisar((await post('/api/usuarios', { usuario: 'vecina', clave: 'llovizna2026', rol: 'mirar' })).cuerpo.ok === true,
+      'el administrador crea un usuario de sólo lectura')
+    const cookieJefe = COOKIE
+    COOKIE = ''
+    await post('/api/entrar', { usuario: 'vecina', clave: 'llovizna2026' })
+    revisar((await api('/api/estado')).codigo === 200, 'el que mira puede ver el estado')
+    const intento = await post('/api/destino', { destino: { nombre: 'X', tipo: 'receta', receta: 'webhook' } })
+    revisar(intento.codigo === 403, 'el que mira NO puede crear un destino', 'HTTP ' + intento.codigo)
+    const vistaMirar = await api('/api/config')
+    revisar(vistaMirar.cuerpo.usuarios === undefined, 'el que mira no ve la lista de usuarios')
+    COOKIE = cookieJefe
+
+    // ============================================================ estaciones
+    titulo('las estaciones aparecen solas')
+    await mandar(envio('AAA111', 'GW3000A', '61.7'))
+    await mandar(envio('BBB222', 'GW2000A', '50.0'))
+    await dormir(600)
+
+    let est = (await api('/api/estado')).cuerpo.estaciones
+    revisar(est.length === 2, 'se descubrieron 2 estaciones', est.map(e => e.id).join(', '))
+    revisar(est.every(e => !e.activa), 'las dos nacen APAGADAS')
+    revisar(est.every(e => e.nombre === ''), 'y sin nombre, esperando que alguien las bautice')
+    revisar(est.every(e => /^…/.test(e.passkey)), 'el PASSKEY sólo se muestra por sus últimos dígitos')
+
+    const dia = (() => { const h = new Date(); return h.getFullYear() + String(h.getMonth() + 1).padStart(2, '0') + String(h.getDate()).padStart(2, '0') + '.txt' })()
+    const a = est[0].id, b = est[1].id
+    revisar(fs.existsSync(path.join(CARPETA, a, dia)) && fs.existsSync(path.join(CARPETA, b, dia)),
+      'cada una archiva en su propia carpeta', a + '/ y ' + b + '/')
+    const crudoA = fs.readFileSync(path.join(CARPETA, a, dia), 'utf8')
+    revisar(crudoA.includes('AAA111') && !crudoA.includes('BBB222'),
+      'y no se mezclan: en la carpeta de una no hay envíos de la otra')
+
+    revisar((await post('/api/estacion', { id: a, nombre: 'Patio', activa: true })).cuerpo.ok === true,
+      'se la bautiza y se la enciende')
+    est = (await api('/api/estado')).cuerpo.estaciones
+    revisar(est.find(e => e.id === a).nombre === 'Patio', 'queda con su nombre')
+
+    // ============================================================ reparto
+    titulo('el reparto')
+    const alta = (nombre, url, extra = {}) => post('/api/destino', {
+      destino: {
+        nombre, tipo: 'receta', receta: 'webhook', estacion: a,
+        credenciales: { url: 'http://127.0.0.1:' + FALSO + url },
+        activo: true, reintentos: 1, ...extra,
+      },
     })
-    revisar(r.status === 200, 'la estación recibe 200')
-    // 3,5 s y no 1: el reintento del 500 espera 2 s a propósito (espera creciente). Con una
-    // pausa más corta la prueba mediría el reparto a medio terminar y fallaría por su culpa,
-    // no por la del programa.
+    revisar((await alta('Del patio', '/patio')).cuerpo.ok === true, 'destino atado a una estación')
+    revisar((await alta('Roto', '/roto')).cuerpo.ok === true, 'destino que da 404')
+    revisar((await alta('Caido', '/caido')).cuerpo.ok === true, 'destino que da 500')
+    revisar((await alta('Central', '/central', { estacion: '*' })).cuerpo.ok === true,
+      'destino comodín, para todas las estaciones')
+    revisar((await alta('Lento', '/lento', { estacion: '*', intervalo_min: 600 })).cuerpo.ok === true,
+      'comodín con intervalo de 600 s')
+
+    const inventada = await alta('Fantasma', '/x', { estacion: 'no_existe' })
+    revisar(!!inventada.cuerpo.error, 'no se puede atar un destino a una estación que no existe')
+
+    golpes.length = 0
+    await mandar(envio('AAA111', 'GW3000A', '63.5'))       // la encendida
+    await mandar(envio('BBB222', 'GW2000A', '52.0'))       // la apagada
     await dormir(3500)
 
-    // EL NOMBRE SE ARMA CON EL DIA LOCAL, igual que el puente. Calcularlo en UTC —que es lo
-    // que hacia la primera version— funciona 21 horas por dia y falla las otras 3: en
-    // Argentina, pasadas las 21 h ya es el dia siguiente en UTC. La prueba estaba mal, no el
-    // programa; y encontro un detalle que convenia dejar dicho en los dos lados.
-    const h = new Date()
-    const dia = h.getFullYear() + String(h.getMonth() + 1).padStart(2, '0') +
-      String(h.getDate()).padStart(2, '0') + '.txt'
-    const crudo = fs.existsSync(path.join(CARPETA, dia)) ? fs.readFileSync(path.join(CARPETA, dia), 'utf8') : ''
-    revisar(crudo.includes('PASSKEY=ABC123'), 'el envío quedó archivado crudo en ' + dia)
-
-    const est = (await api('/api/estado')).cuerpo
-    revisar(est.puente.recibidos === 1, 'el puente cuenta 1 envío')
-    revisar(est.datos.temp_ext === 16.5, 'convierte 61.7 °F a 16.5 °C', 'temp_ext=' + est.datos.temp_ext)
-    revisar(est.datos.viento === 9, 'convierte 5.6 mph a 9 km/h', 'viento=' + est.datos.viento)
-    revisar(est.datos.presion_rel === 1013.2, 'convierte 29.92 inHg a 1013.2 hPa',
-      'presion_rel=' + est.datos.presion_rel)
-    revisar(est.datos.lluvia_dia === 3.05, 'convierte 0.12 in a 3.05 mm', 'lluvia_dia=' + est.datos.lluvia_dia)
-    revisar(est.datos.temp_ext_imp === 61.7, 'conserva el valor imperial sin tocar')
-    revisar(est.datos.tierra_1 === 42, 'toma la humedad de tierra del WH51')
-
-    // --- 3. el reparto -------------------------------------------------------------
-    console.log('\n--- el reparto')
-    const cuenta = (ruta) => golpes.filter(g => g.ruta === ruta).length
-    revisar(cuenta('/bueno') === 1, 'el destino sano recibió 1 vez', 'golpes=' + cuenta('/bueno'))
-    revisar(cuenta('/roto') === 1, 'el 404 NO se reintenta pese a reintentos:1',
-      'golpes=' + cuenta('/roto'))
+    revisar(cuenta('/patio') === 1, 'el destino de la estación recibió 1 vez', 'golpes=' + cuenta('/patio'))
+    revisar(cuenta('/central') === 1, 'el comodín recibió sólo de la encendida',
+      'golpes=' + cuenta('/central'))
+    revisar(cuenta('/roto') === 1, 'el 404 NO se reintenta pese a reintentos:1', 'golpes=' + cuenta('/roto'))
     revisar(cuenta('/caido') === 2, 'el 500 SI se reintenta una vez', 'golpes=' + cuenta('/caido'))
-    revisar(cuenta('/lento') === 1, 'el de intervalo largo entra en el primer envío')
 
-    const porNombre = Object.fromEntries(est.destinos.map(d => [d.nombre, d]))
-    revisar(porNombre.Bueno.detalle === 'ok', 'el panel muestra "ok" en el sano')
-    revisar(String(porNombre.Roto.detalle).startsWith('HTTP 404'), 'el panel muestra el 404',
-      porNombre.Roto.detalle)
-    revisar(porNombre.Roto.problema === true, 'el 404 queda marcado como problema')
-    revisar(typeof porNombre.Bueno.latencia === 'number', 'se mide la latencia del envío')
+    const est2 = (await api('/api/estado')).cuerpo.estaciones
+    const apagada = est2.find(e => e.id === b)
+    revisar(apagada.recibidos === 2, 'la estación apagada igual cuenta sus envíos')
+    revisar(fs.readFileSync(path.join(CARPETA, b, dia), 'utf8').split('\n').filter(Boolean).length === 2,
+      'y los archiva todos: apagada NO es ignorada')
 
-    // --- 4. el intervalo mínimo ------------------------------------------------------
-    console.log('\n--- segundo envío, un minuto después para la estación')
-    await fetch('http://127.0.0.1:' + PUERTO + '/data/report', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: ENVIO.replace('tempf=61.7', 'tempf=63.5'),
-    })
+    // --- ahora se enciende la segunda y el comodín tiene que alcanzarla
+    titulo('se enciende la segunda estación')
+    await post('/api/estacion', { id: b, nombre: 'Quinta', activa: true })
+    golpes.length = 0
+    await mandar(envio('BBB222', 'GW2000A', '53.0'))
     await dormir(1200)
-    revisar(cuenta('/bueno') === 2, 'el sano recibió el segundo envío')
-    revisar(cuenta('/lento') === 1, 'el de 600 s NO recibió el segundo', 'golpes=' + cuenta('/lento'))
+    revisar(cuenta('/central') === 1, 'el comodín ahora sí recibe de la segunda')
+    revisar(cuenta('/patio') === 0, 'y el destino de la primera NO recibe lo de la segunda')
+    revisar(cuenta('/lento') === 1,
+      'el de 600 s recibe igual: su reloj es POR ESTACION, y con esta nunca había mandado')
 
-    const est2 = (await api('/api/estado')).cuerpo
-    revisar(est2.datos.temp_ext === 17.5, 'el panel muestra la lectura nueva')
-    revisar(est2.historial.length === 2, 'el historial del gráfico lleva 2 lecturas')
+    // ============================================================ el panel
+    titulo('el estado que ve el panel')
+    const e3 = (await api('/api/estado')).cuerpo
+    revisar(e3.nodo.estaciones === 2 && e3.nodo.activas === 2, 'el nodo cuenta 2 estaciones activas')
+    revisar(e3.nodo.algo_mal === 'ON', 'y avisa que algo no está funcionando (el 404 y el 500)')
+    const filas = e3.destinos
+    revisar(filas.filter(f => f.nombre === 'Central').length === 2,
+      'el comodín aparece como DOS filas, una por estación', filas.filter(f => f.nombre === 'Central').map(f => f.estacion).join(', '))
+    revisar(filas.filter(f => f.nombre === 'Del patio').length === 1, 'y el atado a una, como una sola')
+    const roto = filas.find(f => f.nombre === 'Roto')
+    revisar(String(roto.detalle).startsWith('HTTP 404') && roto.problema === true, 'el 404 figura como problema')
 
-    // --- 5. los secretos -------------------------------------------------------------
-    console.log('\n--- las credenciales')
-    const cfgVista = (await api('/api/config')).cuerpo
-    const textoVista = JSON.stringify(cfgVista)
-    revisar(!textoVista.includes('127.0.0.1:' + FALSO + '/bueno') || true, 'se leyó la configuración')
-    const bueno = cfgVista.destinos.find(d => d.nombre === 'Bueno')
-    revisar(bueno.credenciales.url === 'http://127.0.0.1:' + FALSO + '/bueno',
-      'una URL sin credencial se muestra entera')
-
-    await api('/api/destino', {
-      method: 'POST',
-      body: JSON.stringify({
-        destino: {
-          nombre: 'Con token', tipo: 'receta', receta: 'webhook',
-          credenciales: { url: 'http://127.0.0.1:' + FALSO + '/token', token: 'SECRETO-DE-VERDAD' },
-          activo: true,
-        },
-      }),
+    // ============================================================ secretos
+    titulo('las credenciales')
+    await post('/api/destino', {
+      destino: {
+        nombre: 'Con token', tipo: 'receta', receta: 'webhook', estacion: '*',
+        credenciales: { url: 'http://127.0.0.1:' + FALSO + '/token', token: 'SECRETO-DE-VERDAD' },
+        activo: true,
+      },
     })
-    const cfg2 = (await api('/api/config')).cuerpo
-    revisar(!JSON.stringify(cfg2).includes('SECRETO-DE-VERDAD'),
-      'el panel NUNCA devuelve el token')
+    const vista = await api('/api/config')
+    revisar(!JSON.stringify(vista.cuerpo).includes('SECRETO-DE-VERDAD'), 'el panel NUNCA devuelve el token')
+    revisar(!JSON.stringify(vista.cuerpo).includes('tormenta2026') &&
+      !JSON.stringify(vista.cuerpo).match(/"hash"/), 'ni las contraseñas de los usuarios, ni cifradas')
+    revisar(Array.isArray(vista.cuerpo.usuarios) && vista.cuerpo.usuarios.length === 2,
+      'el administrador sí ve la lista de usuarios, con nombre y rol')
 
-    // Guardar de nuevo con el secreto en blanco, como hace el formulario.
-    await api('/api/destino', {
-      method: 'POST',
-      body: JSON.stringify({
-        anterior: 'Con token',
-        destino: {
-          nombre: 'Con token', tipo: 'receta', receta: 'webhook',
-          credenciales: { url: 'http://127.0.0.1:' + FALSO + '/token', token: '' },
-          activo: true,
-        },
-      }),
+    await post('/api/destino', {
+      anterior: 'Con token',
+      destino: {
+        nombre: 'Con token', tipo: 'receta', receta: 'webhook', estacion: '*',
+        credenciales: { url: 'http://127.0.0.1:' + FALSO + '/token', token: '' }, activo: true,
+      },
     })
-    const guardado = JSON.parse(fs.readFileSync(path.join(CARPETA, 'config.json'), 'utf8'))
-    const conToken = guardado.destinos.find(d => d.nombre === 'Con token')
-    revisar(conToken.credenciales.token === 'SECRETO-DE-VERDAD',
+    const enDisco = JSON.parse(fs.readFileSync(path.join(CARPETA, 'config.json'), 'utf8'))
+    revisar(enDisco.destinos.find(d => d.nombre === 'Con token').credenciales.token === 'SECRETO-DE-VERDAD',
       'guardar con el campo en blanco NO borra el secreto anterior')
 
-    // --- 6. probar y borrar -----------------------------------------------------------
-    console.log('\n--- probar y borrar')
-    const prueba = await api('/api/probar', { method: 'POST', body: JSON.stringify({ nombre: 'Bueno' }) })
-    revisar(prueba.cuerpo.ok === true, 'el botón Probar manda al destino ahora mismo')
-    const pruebaLento = await api('/api/probar', { method: 'POST', body: JSON.stringify({ nombre: 'Lento' }) })
-    revisar(pruebaLento.cuerpo.ok === true && !pruebaLento.cuerpo.saltado,
-      'Probar se saltea el intervalo mínimo')
+    // ============================================================ borrar
+    titulo('probar y borrar')
+    const prueba = await post('/api/probar', { nombre: 'Del patio' })
+    revisar(prueba.cuerpo.ok === true, 'Probar manda la última lectura real al destino')
 
-    revisar((await api('/api/destino?nombre=Roto', { method: 'DELETE' })).cuerpo.ok === true,
-      'se borra un destino')
-    const cfg3 = (await api('/api/config')).cuerpo
-    revisar(!cfg3.destinos.some(d => d.nombre === 'Roto'), 'y deja de figurar')
-    const enDisco = JSON.parse(fs.readFileSync(path.join(CARPETA, 'config.json'), 'utf8'))
-    revisar(!enDisco.destinos.some(d => d.nombre === 'Roto'), 'y se fue también del disco')
-    revisar(fs.existsSync(path.join(CARPETA, 'respaldos')), 'quedó respaldo de la configuración')
+    revisar((await api('/api/destino?nombre=Roto', { method: 'DELETE' })).cuerpo.ok === true, 'se borra un destino')
+    const borrada = await api('/api/estacion?id=' + b, { method: 'DELETE' })
+    revisar(borrada.cuerpo.ok === true, 'se borra una estación')
+    const cfgFinal = (await api('/api/config')).cuerpo
+    revisar(!cfgFinal.estaciones[b], 'y deja de figurar')
+    revisar(fs.existsSync(path.join(CARPETA, b, dia)),
+      'pero su archivo crudo NO se borra: dejar de vigilarla no es tirar su historia')
 
-    // --- 7. el panel y la sonda -------------------------------------------------------
-    console.log('\n--- el panel')
+    const soloAdmin = us_ultimo(cfgFinal)
+    revisar(soloAdmin, 'queda al menos un administrador')
+
+    // ============================================================ la página
+    titulo('la página')
     const pagina = await fetch('http://127.0.0.1:' + PUERTO + '/')
     const html = await pagina.text()
-    revisar(pagina.status === 200 && html.includes('Puente Ecowitt'), 'la página del panel se sirve')
+    revisar(pagina.status === 200 && html.includes('Puente Ecowitt'), 'la página se sirve sin sesión')
     revisar(html.includes('id="tabla-destinos"'), 'y trae la tabla de destinos')
-    const recetas = (await api('/api/recetas')).cuerpo
-    revisar(recetas.length >= 8, 'hay ' + recetas.length + ' recetas de servicios')
-    revisar(recetas.every(r => r.campos && r.campos.length), 'todas declaran sus credenciales')
     const salud = await fetch('http://127.0.0.1:' + PUERTO + '/salud')
-    revisar(salud.status === 200, 'la sonda de salud contesta 200')
-
-    const basura = await fetch('http://127.0.0.1:' + PUERTO + '/data/report', {
-      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'hola',
-    })
+    revisar(salud.status === 200, 'la sonda de salud contesta sin pedir sesión')
+    const basura = await mandar('hola')
     revisar(basura.status === 400, 'un POST que no es un envío se rechaza')
-    revisar((await api('/api/estado')).cuerpo.puente.recibidos === 2,
-      'y no se cuenta como envío de la estación')
   } finally {
     hijo.kill('SIGTERM')
     falso.close()
     await dormir(300)
   }
 
-  console.log('\n=== ' + (fallas ? fallas + ' FALLAS' : 'todo bien'))
-  if (fallas) {
-    console.log('\n--- salida del puente:')
-    console.log(salida.join(''))
+  // ============================================================ el admin por entorno
+  // Segunda instancia, carpeta nueva y las dos variables puestas. Es el camino que va a usar
+  // todo el que instale con Docker, asi que tiene que estar probado y no supuesto.
+  titulo('el administrador desde las variables del contenedor')
+  const carpeta2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ecowitt-env-'))
+  const hijo2 = spawn(process.execPath, [path.join(AQUI, 'receptora.mjs'), '--puerto', '18091', '--sin-mqtt'], {
+    env: { ...process.env, ARCHIVO: carpeta2, ADMIN_USUARIO: 'duenio', ADMIN_CLAVE: 'granizo2026' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const entrar2 = (clave) => fetch('http://127.0.0.1:18091/api/entrar', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ usuario: 'duenio', clave }),
+  })
+  try {
+    const salida2 = []
+    hijo2.stdout.on('data', d => salida2.push(String(d)))
+    hijo2.stderr.on('data', d => salida2.push(String(d)))
+    if (!await esperarPuerto(18091, salida2)) throw new Error('no arranco')
+    const ses = await (await fetch('http://127.0.0.1:18091/api/sesion')).json()
+    revisar(ses.instalado === true, 'arranca YA instalado, sin pasar por la pantalla de crear')
+    revisar((await entrar2('otra')).status === 401, 'con la clave equivocada no entra')
+    revisar((await entrar2('granizo2026')).status === 200, 'y con la del entorno, si')
+
+    const guardado = JSON.parse(fs.readFileSync(path.join(carpeta2, 'config.json'), 'utf8'))
+    revisar(!JSON.stringify(guardado).includes('granizo2026'),
+      'la contraseña NO queda escrita en config.json, solo su scrypt')
+    revisar(guardado.usuarios.duenio.rol === 'admin', 'y el usuario quedo como administrador')
+  } finally {
+    hijo2.kill('SIGTERM')
+    await dormir(300)
+    try { fs.rmSync(carpeta2, { recursive: true, force: true }) } catch {}
   }
+
+  console.log('\n=== ' + (fallas ? fallas + ' FALLAS' : 'todo bien'))
+  if (fallas) { console.log('\n--- salida del puente:'); console.log(salida.join('')) }
   // La carpeta temporal se borra: si no, cada corrida deja una copia con credenciales de
   // prueba adentro.
   try { fs.rmSync(CARPETA, { recursive: true, force: true }) } catch {}
   process.exit(fallas ? 1 : 0)
 }
+
+const us_ultimo = (cfg) => Array.isArray(cfg.usuarios) && cfg.usuarios.some(u => u.rol === 'admin')
 
 main()

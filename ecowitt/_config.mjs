@@ -14,26 +14,81 @@
 //
 // Y SE RESPALDA ANTES DE CADA CAMBIO, con fecha en el nombre. Un respaldo que se pisa a sí
 // mismo deja de servir justo cuando hace falta.
+//
+// ---------------------------------------------------------------------------------------
+// VERSION 2: VARIAS ESTACIONES EN UN MISMO NODO
+//
+// La versión 1 daba por sentado que había una estación. Eso alcanzaba para una casa y no
+// alcanza para nada más: una quinta con la estación del parque y la del invernadero, alguien
+// que hospeda el puente para dos vecinos, o simplemente una segunda estación que uno agrega y
+// que quiere mandar a otros servicios.
+//
+// LAS ESTACIONES NO SE DAN DE ALTA A MANO: SE DESCUBREN SOLAS. Cada envío de Ecowitt trae un
+// `PASSKEY`, que es un identificador estable del gateway. La primera vez que llega uno
+// desconocido, el puente crea la estación, la deja **apagada y sin nombre**, y la muestra en el
+// panel para que alguien la bautice.
+//
+// Eso vuelve la instalación trivial: se levanta el contenedor, se apunta el gateway, y la
+// estación aparece. No hay que averiguar ningún identificador ni escribirlo en ningún lado.
+//
+// UN DESTINO PERTENECE A UNA ESTACION, o a todas. `estacion: "patio"` recibe sólo lo del patio;
+// `estacion: "*"` recibe lo de todas, que es lo que hace falta para un archivo central o un
+// webhook que guarda todo. Sin el comodín, agregar una estación obligaría a duplicar cada
+// destino genérico.
 
 import fs from 'node:fs'
 import path from 'node:path'
 
+export const VERSION = 2
+
 /** Estructura vacía. Es también la documentación del formato. */
 export const VACIA = {
-  destinos: [],
+  version: VERSION,
+
+  // Ajustes del nodo entero. Lo que no se toca desde el panel llega por variables de entorno.
+  nodo: {
+    nombre: 'Puente Ecowitt',
+    // Prefijo de los temas MQTT de cada estación. El id de la estación se agrega solo:
+    // `estacion/patio/datos`. Se puede cambiar si ya hay otro puente publicando en la misma
+    // raíz, que es el caso de quien corre dos nodos contra un mismo Home Assistant.
+    raiz: 'estacion',
+  },
+
   mqtt: {
     // Vacío = usar las variables de entorno (MQTT_HOST, MQTT_USUARIO, MQTT_CLAVE...).
     // Lo que se cargue acá desde el panel tiene prioridad sobre el entorno.
     host: '', puerto: 1883, usuario: '', clave: '', prefijo: 'homeassistant',
   },
+
+  // Mapa por id. El id es un slug estable que se usa en las rutas de archivo y en los temas
+  // MQTT, así que **no cambia nunca** una vez creado: cambiarlo dejaría entidades huérfanas en
+  // Home Assistant y partiría el archivo histórico en dos. El nombre visible sí se puede
+  // cambiar cuando uno quiera.
+  estaciones: {},
+
+  destinos: [],
+
+  // Quién puede entrar al panel. Vacío = todavía no se instaló nadie, y entonces el panel sólo
+  // muestra la pantalla de crear el administrador. Ver _usuarios.mjs: no hay contraseña de
+  // fábrica a propósito.
+  usuarios: {},
+
   ajustes: {
-    // Nombre del aparato en Home Assistant y raíz de los temas MQTT.
-    estacion: 'Estación meteorológica',
-    base: 'estacion',
-    // Cuántos envíos se guardan en memoria para el visor del panel.
-    historial: 200,
+    // Cuántas lecturas por estación se guardan en memoria para el gráfico del panel.
+    historial: 240,
   },
 }
+
+/** Una estación recién descubierta. Nace apagada: nadie mandó nada a ningún lado todavía. */
+export const estacionNueva = (id, passkey, campos = {}) => ({
+  id,
+  passkey: passkey || '',
+  nombre: '',                       // vacío = "sin nombre", el panel invita a bautizarla
+  modelo: campos.estacion || campos.modelo || '',
+  activa: false,
+  visto_primera: new Date().toISOString(),
+  visto_ultima: new Date().toISOString(),
+})
 
 let RUTA = null
 let CACHE = null
@@ -51,11 +106,11 @@ export function iniciar (carpetaDatos, heredar = []) {
 }
 
 /**
- * Lee la configuración de disco. Si no existe, la crea; si existía el viejo `destinos.json`,
- * se lo trae.
+ * Lee la configuración de disco. Si no existe, la crea; si existía la de una versión anterior,
+ * la migra.
  *
- * LA MIGRACION NO ES CORTESIA: sin ella, la primera vez que arranque esta versión el puente
- * se quedaría sin los destinos que ya estaban andando, y lo haría en silencio.
+ * LA MIGRACION NO ES CORTESIA: sin ella, la primera vez que arranque esta versión el puente se
+ * quedaría sin los destinos que ya estaban andando, y lo haría en silencio.
  */
 export function cargar () {
   if (CACHE) return CACHE
@@ -64,9 +119,9 @@ export function cargar () {
       CACHE = completar(JSON.parse(fs.readFileSync(RUTA, 'utf8')))
       return CACHE
     } catch (e) {
-      // NO se pisa un archivo ilegible: podría ser el único lugar donde están las
-      // credenciales, y sobrescribirlo con la plantilla vacía las borraría para siempre.
-      // Se lo aparta con otro nombre y se sigue con la vacía, dejándolo dicho.
+      // NO se pisa un archivo ilegible: podría ser el único lugar donde están las credenciales,
+      // y sobrescribirlo con la plantilla vacía las borraría para siempre. Se lo aparta con
+      // otro nombre y se sigue con la vacía, dejándolo dicho.
       const roto = RUTA + '.roto-' + Date.now()
       try { fs.renameSync(RUTA, roto) } catch {}
       console.error('config.json ilegible (' + e.message + '). Apartado en ' + path.basename(roto))
@@ -80,9 +135,6 @@ export function cargar () {
     // contenedor moría en 0,6 segundos, en bucle, y como además el registro estaba anulado en
     // el compose, la pestaña Registro del Container Manager aparecía vacía. Dos horas de
     // adivinar algo que el propio programa sabía.
-    //
-    // Se sigue muriendo —un puente que no puede escribir tampoco puede archivar, y archivar es
-    // la mitad de su valor— pero ahora dice qué pasa y qué hacer.
     console.error('')
     console.error('=== NO SE PUEDE ESCRIBIR EN EL VOLUMEN DE DATOS')
     console.error('    ' + RUTA)
@@ -98,7 +150,7 @@ export function cargar () {
   return CACHE
 }
 
-/** Trae los destinos del `destinos.json` de la versión anterior, si está. */
+/** Trae lo que haya de versiones anteriores: el `destinos.json` suelto o un config.json v1. */
 function migrarViejo () {
   for (const p of [...HEREDADOS, path.join(path.dirname(RUTA), 'destinos.json')]) {
     try {
@@ -113,14 +165,39 @@ function migrarViejo () {
   return { ...VACIA }
 }
 
-/** Rellena lo que falte, para que una configuración vieja no rompa una versión nueva. */
+/**
+ * Rellena lo que falte y sube de versión, para que una configuración vieja no rompa una nueva.
+ *
+ * DE LA v1 A LA v2: los destinos de la v1 no tenían estación porque había una sola. Se les pone
+ * el comodín `*`, no la primera estación que aparezca. Es la única opción que **conserva el
+ * comportamiento exacto** que tenían: recibían todo lo que llegara, sin importar de dónde.
+ * Asignarlos a una estación concreta los dejaría mudos si el gateway cambiara de PASSKEY.
+ */
 function completar (c) {
-  return {
+  const salida = {
     ...VACIA, ...c,
+    version: VERSION,
+    nodo: { ...VACIA.nodo, ...(c.nodo || {}) },
     mqtt: { ...VACIA.mqtt, ...(c.mqtt || {}) },
     ajustes: { ...VACIA.ajustes, ...(c.ajustes || {}) },
+    estaciones: { ...(c.estaciones || {}) },
     destinos: Array.isArray(c.destinos) ? c.destinos : [],
+    usuarios: { ...(c.usuarios || {}) },
   }
+
+  // v1 llamaba `ajustes.base` a la raíz de los temas y `ajustes.estacion` al nombre del
+  // aparato. Se traen para no perder una configuración que ya andaba.
+  if (c.ajustes && c.ajustes.base && !(c.nodo && c.nodo.raiz)) salida.nodo.raiz = c.ajustes.base
+  delete salida.ajustes.base
+  delete salida.ajustes.estacion
+
+  salida.destinos = salida.destinos.map(d => ({ ...d, estacion: d.estacion || '*' }))
+
+  // Cada estación se completa con lo que falte, por si viene de una versión intermedia.
+  for (const [id, e] of Object.entries(salida.estaciones)) {
+    salida.estaciones[id] = { ...estacionNueva(id, e.passkey), ...e, id }
+  }
+  return salida
 }
 
 function escribir (c) {
@@ -149,11 +226,61 @@ export function guardar (nueva) {
 /** Vuelve a leer de disco en la próxima llamada. Para cuando alguien edita el JSON a mano. */
 export function olvidar () { CACHE = null }
 
+// ---------------------------------------------------------------- identidad de estación
+
+/**
+ * Convierte un texto cualquiera en un id usable en rutas de archivo y temas MQTT.
+ *
+ * Se usa para el id de la estación, así que **tiene que ser estable**: el mismo nombre da
+ * siempre el mismo id, y no puede producir cadenas vacías ni con barras.
+ */
+export const aId = (texto) => String(texto || '').toLowerCase().normalize('NFD')
+  .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40)
+
+/**
+ * Con qué se reconoce a una estación, en orden de preferencia.
+ *
+ * 1. `PASSKEY`, que es lo que manda el protocolo Ecowitt: un identificador estable del gateway.
+ * 2. `ID`, que es lo que manda el protocolo Wunderground, donde no hay PASSKEY.
+ * 3. La ruta del POST. Sirve para gateways raros y para separar a mano dos estaciones que por
+ *    lo que sea comparten identificador: se les da una ruta distinta a cada una.
+ *
+ * Devuelve null si no hay con qué: ese envío se archiva igual, bajo `sin_identificar`.
+ */
+export function identificar (campos, ruta) {
+  if (campos.passkey) return { clave: 'passkey', valor: String(campos.passkey) }
+  if (campos.wu_id) return { clave: 'id', valor: String(campos.wu_id) }
+  const r = String(ruta || '').replace(/^\/+|\/+$/g, '')
+  if (r && r !== 'data/report') return { clave: 'ruta', valor: r }
+  return null
+}
+
+/** Busca la estación que corresponde a una identidad. Devuelve su id o null. */
+export function estacionDe (config, identidad) {
+  if (!identidad) return null
+  for (const [id, e] of Object.entries(config.estaciones)) {
+    if (identidad.clave === 'passkey' && e.passkey && e.passkey === identidad.valor) return id
+    if (identidad.clave !== 'passkey' && id === aId(identidad.valor)) return id
+  }
+  return null
+}
+
+/**
+ * Un id libre a partir de una identidad. Si el modelo del gateway está a mano se usa eso;
+ * si no, un número. Nunca se usa el PASSKEY como id: es largo, feo, y no dice nada.
+ */
+export function idLibre (config, campos) {
+  const base = aId(campos.modelo || campos.estacion) || 'estacion'
+  if (!config.estaciones[base]) return base
+  for (let i = 2; i < 100; i++) if (!config.estaciones[base + '_' + i]) return base + '_' + i
+  return base + '_' + Date.now().toString(36)
+}
+
 // ---------------------------------------------------------------- secretos
 //
-// EL PANEL NUNCA DEVUELVE UNA CREDENCIAL. Manda `null` en su lugar y muestra un campo vacío
-// con la marca de que ya hay una cargada. Al guardar, un campo vacío significa "dejá la que
-// estaba", no "borrala".
+// EL PANEL NUNCA DEVUELVE UNA CREDENCIAL. Manda los puntitos en su lugar y muestra un campo
+// vacío con la marca de que ya hay una cargada. Al guardar, un campo vacío significa "dejá la
+// que estaba", no "borrala".
 //
 // Sin esto, cualquiera que abra el panel —o cualquier captura de pantalla, o el registro de un
 // navegador— se lleva la clave de Wunderground y el webhook de Home Assistant.
@@ -167,9 +294,18 @@ export function sinSecretos (c) {
     for (const [k, v] of Object.entries(o || {})) s[k] = SECRETO.test(k) ? (v ? '••••••' : '') : v
     return s
   }
+  const { usuarios, ...resto } = c
   return {
-    ...c,
+    ...resto,
+    // LOS USUARIOS NO SALEN DE ACA, ni siquiera con la contraseña cifrada. Un scrypt en pantalla
+    // es un scrypt que alguien puede llevarse y atacar sin apuro. La lista de nombres y roles
+    // va por su propio endpoint, y sólo para el administrador.
     mqtt: limpiar(c.mqtt),
+    // El PASSKEY identifica al gateway y viaja en claro en cada envío, pero no tiene por qué
+    // andar dando vueltas en la pantalla: se muestran los últimos cuatro, que alcanzan para
+    // reconocer cuál es cuál cuando hay dos estaciones parecidas.
+    estaciones: Object.fromEntries(Object.entries(c.estaciones || {}).map(([id, e]) =>
+      [id, { ...e, passkey: e.passkey ? '…' + String(e.passkey).slice(-4) : '' }])),
     destinos: c.destinos.map(d => ({
       ...d,
       url: ocultarEnUrl(d.url),
@@ -197,7 +333,7 @@ export function fundirSecretos (nuevo, anterior) {
   const r = { ...nuevo }
   for (const [k, v] of Object.entries(nuevo || {})) {
     if (!SECRETO.test(k)) continue
-    if (v === '' || v === null || v === undefined || /^[•*]+$/.test(String(v))) {
+    if (v === '' || v === null || v === undefined || /^[•*…]+$/.test(String(v))) {
       if (anterior && anterior[k] !== undefined) r[k] = anterior[k]
       else delete r[k]
     }

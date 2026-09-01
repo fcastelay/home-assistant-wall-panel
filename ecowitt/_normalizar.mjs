@@ -62,6 +62,9 @@ export function normalizar (cuerpo) {
   set('estacion', s('stationtype'))
   set('modelo', s('model'))
   set('passkey', s('PASSKEY'))
+  // El identificador de estacion del protocolo Wunderground. Ahi no hay PASSKEY, asi que es lo
+  // unico con que distinguir dos estaciones que le hablen al mismo puente.
+  set('wu_id', s('ID'))
   set('intervalo', n('interval'))
   // dateutc viene como "2026-08-31 23:10:00" (hora UTC, sin zona). Se deja tal cual y además
   // en ISO, porque cada servicio pide uno de los dos.
