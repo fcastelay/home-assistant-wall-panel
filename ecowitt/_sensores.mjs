@@ -112,9 +112,24 @@ export function descubrimientos (campos, destinos, ajustes) {
     payload_not_available: 'offline',
   }
   const msgs = []
+  // NO SE MANDA `object_id`, y sacarlo fue una medicion, no una preferencia.
+  //
+  // El 01/09/2026 se comprobo contra este HA: mandando `object_id: 'estacion_envios'` con
+  // nombre 'Envios recibidos', la entidad quedo como
+  // `sensor.estacion_meteorologica_envios_recibidos`. **El object_id no se uso**: HA arma el
+  // identificador con el nombre del aparato mas el nombre de la entidad.
+  //
+  // Dejarlo puesto no hacia daño, pero decia algo falso sobre como funciona esto, y el codigo
+  // que miente sobre su propio efecto es peor que el codigo de mas.
+  //
+  // LO QUE SI IMPORTA ES EL `unique_id`: es lo que ata la entidad a su entrada del registro.
+  // Mientras no cambie, HA reconoce la entidad y **conserva el entity_id que le puso la primera
+  // vez**, aunque despues se le cambie el nombre. Por eso quedaron dos entidades llamadas
+  // `..._estacion_ultimo_envio`, con la palabra repetida, que hubo que renombrar a mano con
+  // scripts/ha/renombrar-entidades.mjs. Cambiar un nombre no arregla un entity_id ya nacido.
   const anunciar = (tipo, id, cfg) => msgs.push({
     tema: pre + '/' + tipo + '/' + base + '/' + id + '/config',
-    contenido: JSON.stringify({ ...comun, ...cfg, unique_id: base + '_' + id, object_id: base + '_' + id }),
+    contenido: JSON.stringify({ ...comun, ...cfg, unique_id: base + '_' + id }),
   })
 
   // --- los sensores meteorológicos, uno por campo presente
