@@ -1,0 +1,14 @@
+# Los guiones de shell van SIEMPRE con fin de línea Unix.
+#
+# Este repositorio se arma desde Windows, donde git convierte a CRLF al escribir la copia de
+# trabajo. Para un .mjs da igual. Para un .sh que va adentro de un contenedor, no: con un
+# retorno de carro al final del "#!", Linux no dice "sobra un carácter", dice **"not found"**,
+# y uno se pasa media hora buscando un archivo que está ahí.
+#
+# El Dockerfile del puente además le pasa un `sed` por las dudas. Las dos defensas son baratas
+# y el error que evitan es de los que no dan ninguna pista.
+*.sh text eol=lf
+
+# El Dockerfile no es un guion, pero su RUN termina ejecutándose en un shell de Linux.
+Dockerfile text eol=lf
+.dockerignore text eol=lf
