@@ -278,6 +278,36 @@ const main = async () => {
     revisar(dA.estacion === a && dB.estacion === b,
       'cada uno queda atado a su estacion', dA.estacion + ' / ' + dB.estacion)
 
+    // ============================================================ los recursos
+    titulo('los recursos estaticos')
+    const rec = async (ruta) => {
+      const r = await fetch('http://127.0.0.1:' + PUERTO + ruta)
+      return { codigo: r.status, tipo: r.headers.get('content-type') || '', largo: (await r.arrayBuffer()).byteLength }
+    }
+    const css = await rec('/recursos/fuente.css')
+    revisar(css.codigo === 200 && /text\/css/.test(css.tipo), 'la hoja de la tipografia se sirve')
+    const ico = await rec('/recursos/iconos.json')
+    revisar(ico.codigo === 200 && ico.largo > 5000, 'los iconos tambien', ico.largo + ' bytes')
+
+    // SE SIRVEN SIN SESION A PROPOSITO: la pantalla de entrar los necesita. Se comprueba con la
+    // cookie borrada, que es la situacion de alguien que todavia no entro.
+    const guardada = COOKIE
+    COOKIE = ''
+    revisar((await rec('/recursos/fuente.css')).codigo === 200, 'y sin sesion, que es cuando mas hacen falta')
+    COOKIE = guardada
+
+    // LA UNICA VULNERABILIDAD REAL DE SERVIR ARCHIVOS: salirse de la carpeta. Un servidor que
+    // pega lo que pide el navegador entrega datos/config.json con todas las credenciales.
+    const fuera = ['/recursos/../datos/config.json', '/recursos/..%2fdatos%2fconfig.json',
+      '/recursos/../../etc/passwd', '/recursos/fondos/../../datos/config.json']
+    let seEscapo = false
+    for (const f of fuera) {
+      const r = await fetch('http://127.0.0.1:' + PUERTO + f)
+      const t = await r.text()
+      if (r.status === 200 || /usuarios|credenciales|scrypt/.test(t)) seEscapo = true
+    }
+    revisar(!seEscapo, 'ninguna de las 4 formas de escaparse de la carpeta entrega nada')
+
     // ============================================================ el panel
     titulo('el estado que ve el panel')
     const e3 = (await api('/api/estado')).cuerpo

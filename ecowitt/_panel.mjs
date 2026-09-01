@@ -30,6 +30,7 @@ import { PAGINA } from './_pagina.mjs'
 import { catalogo, faltantes, RECETAS } from './_recetas.mjs'
 import { sinSecretos, fundirSecretos } from './_config.mjs'
 import * as us from './_usuarios.mjs'
+import { servir } from './_estaticos.mjs'
 
 // La salida de emergencia para quien quiera el panel abierto en una red de confianza. Apagada
 // por defecto: un panel abierto tiene que ser una decisión, no un descuido.
@@ -71,6 +72,10 @@ const ESCRITURA = new Set(['/api/destino', '/api/config', '/api/probar', '/api/e
 export async function atender (req, res, ctx) {
   const url = new URL(req.url, 'http://x')
   const ruta = url.pathname
+
+  // --- los recursos (tipografia, iconos, fondos), antes que cualquier control de acceso:
+  //     la pantalla de entrar tambien los necesita.
+  if (servir(req, res)) return true
 
   // --- la sonda, antes que cualquier control de acceso
   if (ruta === '/salud') {

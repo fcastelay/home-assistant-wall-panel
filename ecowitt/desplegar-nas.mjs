@@ -36,8 +36,10 @@ const PUERTO = 8088
 const PROPIOS = [
   'receptora.mjs', '_normalizar.mjs', '_destinos.mjs', '_recetas.mjs',
   '_sensores.mjs', '_config.mjs', '_panel.mjs', '_pagina.mjs', '_registro.mjs',
-  '_usuarios.mjs',
+  '_usuarios.mjs', '_estaticos.mjs',
 ]
+// La carpeta de recursos entera: tipografia, iconos y fondos. Se copia con su estructura.
+const CARPETAS = ['recursos']
 // El .dockerignore va SI O SI: sin él, el contexto de construcción se lleva datos/ y mqtt.env
 // —o sea las credenciales de todos los destinos y la clave del broker— al motor de Docker, y
 // en una imagen que después se comparta quedan adentro.
@@ -71,7 +73,7 @@ const escribirEnv = (carpeta) => {
     '# Generado por scripts/ecowitt/desplegar-nas.mjs. NO se versiona.',
     '# Lo que falte, mirá .env.ejemplo: está todo explicado ahí.',
     '',
-    'PUERTO_HOST=' + PUERTO,
+    'PUERTO=' + PUERTO,
     'TZ=America/Argentina/Buenos_Aires',
     '',
     '# El dueño de la carpeta de datos en este NAS, medido el 01/09/2026 con la API del DSM.',
@@ -138,6 +140,13 @@ const main = () => {
 
   for (const f of [...PROPIOS, ...SUELTOS]) fs.copyFileSync(path.join(AQUI, f), path.join(DESTINO, f))
   for (const [origen, nombre] of COMPARTIDOS) fs.copyFileSync(origen, path.join(DESTINO, nombre))
+  for (const c of CARPETAS) {
+    const desde = path.join(AQUI, c)
+    if (fs.existsSync(desde)) {
+      fs.cpSync(desde, path.join(DESTINO, c), { recursive: true })
+      console.log('   ' + (c + '/').padEnd(24) + 'copiada entera')
+    }
+  }
 
   // El LEEME.md de la version anterior queda huerfano y dice cosas que ya no son ciertas.
   // Dos documentos que se contradicen son peores que uno solo.

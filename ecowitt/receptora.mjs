@@ -56,6 +56,7 @@ import * as cfg from './_config.mjs'
 import { descubrimientos, descubrimientosNodo, retirosDestino, retirosEstacion, temas, idDe }
   from './_sensores.mjs'
 import { atender, revisar } from './_panel.mjs'
+import { inventario } from './_estaticos.mjs'
 import * as usuarios from './_usuarios.mjs'
 import { anotar, anotarLectura, olvidarLecturas, verEventos, verLecturas } from './_registro.mjs'
 
@@ -770,6 +771,10 @@ servidor.listen(PUERTO, () => {
   console.log('    destinos:      ' + (CONFIG.destinos.length
     ? CONFIG.destinos.map(d => d.nombre + ' → ' + d.estacion).join(', ')
     : 'ninguno — sólo archiva'))
+  const inv = inventario()
+  console.log('    recursos:      ' + inv.fuentes + ' tipografias · ' + inv.iconos +
+    ' iconos · ' + inv.fondos + ' fondos' +
+    ((inv.fuentes && inv.iconos) ? '' : '   [FALTAN: correr bajar-recursos.mjs]'))
   if (SECO) console.log('    modo seco: no reenvía')
   if (SIN_MQTT) console.log('    sin MQTT: no publica a Home Assistant')
   console.log('')

@@ -25,6 +25,7 @@ RUN apk add --no-cache tini su-exec wget
 
 WORKDIR /app
 COPY *.mjs ./
+COPY recursos ./recursos
 COPY entrada.sh /usr/local/bin/entrada.sh
 
 # Tres cosas que parecen paranoia y no lo son. El archivo viene por Samba desde Windows:

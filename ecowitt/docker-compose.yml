@@ -27,8 +27,12 @@ services:
     user: "${UID_DATOS:-0}:${GID_DATOS:-0}"
 
     ports:
-      # Un solo puerto: por acá entran las estaciones y por acá se abre el panel.
-      - "${PUERTO_HOST:-8088}:${PUERTO:-8088}"
+      # UNA SOLA VARIABLE PARA UNA SOLA DECISION. Antes eran dos —PUERTO_HOST y PUERTO— para
+      # elegir lo mismo, y se podian poner distintas sin que nada avisara.
+      #
+      # Adentro del contenedor el puerto es siempre 8088 y no hace falta tocarlo: nadie mas vive
+      # ahi adentro. Lo unico que se elige es por donde se lo publica afuera.
+      - "${PUERTO:-8088}:8088"
 
     volumes:
       # LO UNICO PERSISTENTE. El código va dentro de la imagen, no montado: el contenedor no
@@ -36,7 +40,8 @@ services:
       - ${RUTA_DATOS:-./datos}:/app/datos
 
     environment:
-      - PUERTO=${PUERTO:-8088}
+      # El de adentro, fijo. El de afuera se elige arriba.
+      - PUERTO=8088
       - ARCHIVO=/app/datos
       - TZ=${TZ:-UTC}
 
