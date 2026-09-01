@@ -241,6 +241,43 @@ const main = async () => {
     revisar(cuenta('/lento') === 1,
       'el de 600 s recibe igual: su reloj es POR ESTACION, y con esta nunca había mandado')
 
+    // ============================================================ mismo servicio, dos estaciones
+    //
+    // EL CASO QUE IMPORTA: la misma receta cargada dos veces, con credenciales distintas, una
+    // por estacion. Es lo normal — cada estacion es una cuenta distinta en el servicio— y si el
+    // puente mezclara las credenciales, los datos del patio se publicarian en la estacion de la
+    // quinta sin que nadie lo note.
+    titulo('el mismo servicio con credenciales distintas por estacion')
+    const dosVeces = async (nombre, estacion, url) => post('/api/destino', {
+      destino: {
+        nombre, tipo: 'receta', receta: 'webhook', estacion,
+        credenciales: { url: 'http://127.0.0.1:' + FALSO + url, token: 'clave-de-' + estacion },
+        activo: true,
+      },
+    })
+    revisar((await dosVeces('Servicio A patio', a, '/svc-patio')).cuerpo.ok === true,
+      'se carga el servicio para la primera estacion')
+    revisar((await dosVeces('Servicio A quinta', b, '/svc-quinta')).cuerpo.ok === true,
+      'y el MISMO servicio para la segunda, con otras credenciales')
+
+    golpes.length = 0
+    await mandar(envio('AAA111', 'GW3000A', '64.0'))
+    await dormir(1200)
+    revisar(cuenta('/svc-patio') === 1 && cuenta('/svc-quinta') === 0,
+      'un envio de la primera va SOLO a las credenciales de la primera')
+
+    golpes.length = 0
+    await mandar(envio('BBB222', 'GW2000A', '54.0'))
+    await dormir(1200)
+    revisar(cuenta('/svc-quinta') === 1 && cuenta('/svc-patio') === 0,
+      'y uno de la segunda, SOLO a las de la segunda')
+
+    const cfgDos = (await api('/api/config')).cuerpo
+    const dA = cfgDos.destinos.find(d => d.nombre === 'Servicio A patio')
+    const dB = cfgDos.destinos.find(d => d.nombre === 'Servicio A quinta')
+    revisar(dA.estacion === a && dB.estacion === b,
+      'cada uno queda atado a su estacion', dA.estacion + ' / ' + dB.estacion)
+
     // ============================================================ el panel
     titulo('el estado que ve el panel')
     const e3 = (await api('/api/estado')).cuerpo
