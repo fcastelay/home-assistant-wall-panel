@@ -130,7 +130,13 @@ const main = async () => {
     // no por la del programa.
     await dormir(3500)
 
-    const dia = new Date().toISOString().slice(0, 10).replace(/-/g, '') + '.txt'
+    // EL NOMBRE SE ARMA CON EL DIA LOCAL, igual que el puente. Calcularlo en UTC —que es lo
+    // que hacia la primera version— funciona 21 horas por dia y falla las otras 3: en
+    // Argentina, pasadas las 21 h ya es el dia siguiente en UTC. La prueba estaba mal, no el
+    // programa; y encontro un detalle que convenia dejar dicho en los dos lados.
+    const h = new Date()
+    const dia = h.getFullYear() + String(h.getMonth() + 1).padStart(2, '0') +
+      String(h.getDate()).padStart(2, '0') + '.txt'
     const crudo = fs.existsSync(path.join(CARPETA, dia)) ? fs.readFileSync(path.join(CARPETA, dia), 'utf8') : ''
     revisar(crudo.includes('PASSKEY=ABC123'), 'el envío quedó archivado crudo en ' + dia)
 

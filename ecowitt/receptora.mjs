@@ -95,6 +95,11 @@ let camposAnunciados = ''
 /**
  * Guarda el envío tal como llegó, un archivo por día.
  *
+ * EL ARCHIVO SE NOMBRA CON EL DIA LOCAL, no con el UTC, y la marca de tiempo de cada línea va
+ * en ISO (UTC). Es a propósito: uno busca "qué pasó el martes a la tarde" en horario de acá,
+ * pero cada línea tiene que ser comparable con cualquier otro registro. Entre las 21 y las 24
+ * los dos días no coinciden — conviene saberlo antes de buscar un dato y no encontrarlo.
+ *
  * SE ESCRIBE ANTES DE REENVIAR, y ese orden importa: si un destino cuelga o el proceso se cae
  * a mitad del reparto, el dato ya está en disco. Al revés se perdería justo el envío de la
  * tormenta que uno quería mirar.
