@@ -239,14 +239,17 @@ const publicar = (tema, valor, retener = true) => { if (mqtt) mqtt.publicar(tema
  * sería dejar de guardar datos por no poder avisar que se guardan.
  */
 let esperaMqtt = 5000
+let conectando = false
 function conectarMqtt () {
-  if (SECO || SIN_MQTT) return
+  if (SECO || SIN_MQTT || conectando || mqtt) return
+  conectando = true
   const t = temas(opcionesMqtt().raiz, '_')
   // El testamento: si este proceso se muere, el broker publica "offline" por él y TODAS las
   // entidades, de todas las estaciones, quedan no disponibles en vez de congeladas.
   const will = { tema: t.disponible, contenido: 'offline' }
   const reintentar = (motivo) => {
     mqtt = null
+    conectando = false
     mqttMotivo = motivo
     anotar('aviso', 'sin MQTT (' + motivo + '). Reintento en ' + Math.round(esperaMqtt / 1000) + ' s.')
     setTimeout(conectarMqtt, esperaMqtt)
@@ -257,6 +260,7 @@ function conectarMqtt () {
   // esto en su casa. Acá las credenciales se arman explícitas o no se conecta.
   const propias = credencialesMqtt()
   if (!propias) {
+    conectando = false
     mqttMotivo = 'sin configurar'
     anotar('info', 'sin MQTT: no hay broker configurado. El puente recibe, archiva y reparte ' +
       'igual; lo único que falta es la vigilancia desde Home Assistant.')
@@ -266,6 +270,7 @@ function conectarMqtt () {
   conectar((e) => reintentar(e.message), { id: 'ecowitt-puente', will, credenciales: propias })
     .then(c => {
       mqtt = c
+      conectando = false
       mqttMotivo = ''
       esperaMqtt = 5000
       publicar(t.disponible, 'online')
@@ -459,7 +464,21 @@ const contexto = {
   guardar (nueva) {
     CONFIG = cfg.guardar(nueva)
     anotar('info', 'configuración guardada desde el panel')
-    if (mqtt) { anunciarTodo('cambio de configuración'); publicarNodo() }
+    if (mqtt) {
+      anunciarTodo('cambio de configuración')
+      publicarNodo()
+    } else if (credencialesMqtt()) {
+      // SE INTENTA CONECTAR AHI MISMO, y esto arregla algo que pasó de verdad el 01/09/2026:
+      // el puente arrancó sin broker configurado, se dijo "sin MQTT" y no volvió a intentarlo
+      // nunca. Después alguien cargó el broker en el panel, guardó, y **no pasó nada** — había
+      // que reiniciar el contenedor para que sirviera, cosa que sólo decía una nota al pie.
+      //
+      // Guardar una configuración y que no tenga efecto es la peor forma de fallar: no hay
+      // error, no hay señal, y el que la cargó se queda mirando una pantalla que dice que todo
+      // está bien.
+      anotar('info', 'se cargó un broker: intentando conectar')
+      conectarMqtt()
+    }
     return CONFIG
   },
 

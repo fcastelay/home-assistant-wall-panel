@@ -51,12 +51,21 @@ const COMPARTIDOS = [[path.join(AQUI, '..', 'garnet', '_mqtt.mjs'), '_mqtt.mjs']
  * LA CLAVE DEL BROKER VA DIRECTO AL ARCHIVO, sin pasar por pantalla ni por el registro de la
  * sesión. Misma lección que en _secreto.mjs.
  *
- * NO SE PISA UN .env QUE YA EXISTA: ahí puede estar la contraseña del administrador, puesta a
- * mano. Sobrescribirlo en cada despliegue la borraría justo cuando todo funcionaba.
+ * NO SE PISA NINGUN VALOR QUE YA ESTE, pero SI SE COMPLETAN LOS QUE FALTEN.
+ *
+ * La primera versión se salteaba el archivo entero si existía, y eso costó una tarde: el 01/09
+ * había un `.env` hecho a mano con dos líneas —los uid del volumen, para destrabar los
+ * permisos— y por respetarlo el despliegue nunca escribió las de MQTT. El contenedor arrancaba
+ * sin broker, la configuración del panel no alcanzaba, y desde afuera parecía que MQTT estaba
+ * roto.
+ *
+ * Respetar lo que hay y completar lo que falta son dos cosas distintas. Sólo la primera es una
+ * regla; la segunda era una omisión.
  */
 const escribirEnv = (carpeta) => {
   const destino = path.join(carpeta, '.env')
-  if (fs.existsSync(destino)) return { ya: true }
+  const previo = fs.existsSync(destino) ? fs.readFileSync(destino, 'utf8') : ''
+  const yaTiene = (clave) => new RegExp('^' + clave + '=', 'm').test(previo)
 
   const lineas = [
     '# Generado por scripts/ecowitt/desplegar-nas.mjs. NO se versiona.',
@@ -87,8 +96,19 @@ const escribirEnv = (carpeta) => {
   } catch {}
   lineas.push('# El administrador del panel. Si lo dejás vacío, el panel te lo pide la primera vez.',
     'ADMIN_USUARIO=', 'ADMIN_CLAVE=', '')
-  fs.writeFileSync(destino, lineas.join('\n'))
-  return { conClave }
+
+  // Se dejan afuera las claves que el archivo ya trae: lo que alguien escribió a mano gana.
+  const faltan = lineas.filter(l => {
+    const m = l.match(/^([A-Z_]+)=/)
+    return !m || !yaTiene(m[1])
+  })
+  const nuevas = faltan.filter(l => /^[A-Z_]+=/.test(l))
+  if (!nuevas.length) return { ya: true }
+
+  fs.writeFileSync(destino, previo
+    ? previo.replace(/[ \n]*$/, '') + '\n\n# --- completado por el despliegue ---\n' + faltan.join('\n')
+    : faltan.join('\n'))
+  return { conClave, completado: previo ? nuevas.length : 0 }
 }
 
 const main = () => {
@@ -128,7 +148,8 @@ const main = () => {
   }
 
   const env = escribirEnv(DESTINO)
-  if (env.ya) console.log('\n   .env YA EXISTE: no se toca')
+  if (env.ya) console.log('\n   .env ya estaba completo: no se toca')
+  else if (env.completado) console.log('\n   .env completado con ' + env.completado + ' variables que faltaban')
   else if (!env.conClave) {
     console.log('\n   OJO: no se pudo leer la clave del broker de HA.')
     console.log('   Cargala desde el panel: Ajustes -> MQTT.')
